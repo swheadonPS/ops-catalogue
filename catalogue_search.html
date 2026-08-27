@@ -807,6 +807,7 @@ function openModal(type, product) {
 
     form.innerHTML = "";
     form.dataset.type = type;
+    delete form.dataset.dupeChecked;
 
     const commonFields = `
         <div class="field-row">
@@ -1044,27 +1045,16 @@ document.getElementById("overlay").addEventListener("click", (e) => {
     if (e.target.id === "overlay") closeModal();
 });
 
-function showDuplicateCheck() {
-    const term = document.getElementById("search").value.trim();
-    if (!term || !fuse) {
-        openModal("new", {});
-        return;
-    }
-    const topMatches = fuse.search(term).slice(0, 5).map(r => r.item);
-    if (topMatches.length === 0) {
-        openModal("new", {});
-        return;
-    }
-
+function showDuplicateInterstitial(term, matches, onContinue) {
     const overlay = document.getElementById("overlay");
     const title = document.getElementById("modal-title");
     const sub = document.getElementById("modal-sub");
     const form = document.getElementById("modal-form");
 
-    title.textContent = "Before you request a brand new code...";
+    title.textContent = "Before you continue...";
     sub.textContent = `Here's what we found close to "${term}" — worth a check before creating something new.`;
 
-    const itemsHtml = topMatches.map(item => `
+    const itemsHtml = matches.map(item => `
         <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); gap:10px;">
             <div style="min-width:0;">
                 <div style="font-size:14px; font-weight:500;">${escapeHtml(item.stock_name)}</div>
@@ -1088,23 +1078,50 @@ function showDuplicateCheck() {
 
     form.querySelectorAll("button[data-stock-code]").forEach(btn => {
         btn.addEventListener("click", () => {
-            const item = topMatches.find(p => p.stock_code === btn.dataset.stockCode);
+            const item = matches.find(p => p.stock_code === btn.dataset.stockCode);
             closeModal();
             setTimeout(() => openModal(item.active ? "clone" : "reactivate", item), 150);
         });
     });
 
-    document.getElementById("btn-continue-new").addEventListener("click", () => {
-        openModal("new", {});
-    });
+    document.getElementById("btn-continue-new").addEventListener("click", onContinue);
 
     overlay.classList.add("show");
+}
+
+function showDuplicateCheck() {
+    const term = document.getElementById("search").value.trim();
+    if (!term || !fuse) {
+        openModal("new", {});
+        return;
+    }
+    const topMatches = fuse.search(term).slice(0, 5).map(r => r.item);
+    if (topMatches.length === 0) {
+        openModal("new", {});
+        return;
+    }
+    showDuplicateInterstitial(term, topMatches, () => openModal("new", {}));
 }
 
 document.getElementById("btn-brand-new").addEventListener("click", showDuplicateCheck);
 
 function submitRequest(type, form) {
     const data = Object.fromEntries(new FormData(form).entries());
+
+    // Final check before a "new code" request actually sends — the earlier check only
+    // looked at whatever was in the search box when the button was clicked, which could
+    // be empty, unrelated, or just a bad search. This re-checks the real description
+    // that's about to be submitted, so a dodgy initial search can't slip a duplicate through.
+    if (type === "new" && !form.dataset.dupeChecked && data.new_description && fuse) {
+        const dupMatches = fuse.search(data.new_description).slice(0, 5).map(r => r.item);
+        if (dupMatches.length > 0) {
+            showDuplicateInterstitial(data.new_description, dupMatches, () => {
+                form.dataset.dupeChecked = "true";
+                submitRequest(type, form);
+            });
+            return;
+        }
+    }
 
     let subject, body;
 
