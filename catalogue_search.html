@@ -335,6 +335,10 @@
 </header>
 
 <main>
+    <div id="mode-toggle" style="display:flex; gap:8px; margin-bottom:10px;">
+        <div class="filter-chip active" data-mode="normal">Normal search</div>
+        <div class="filter-chip" data-mode="supplier">Supplier stock code</div>
+    </div>
     <div id="search-wrap">
         <input type="text" id="search" placeholder="Search by stock code, name, or category..." autocomplete="off">
     </div>
@@ -394,12 +398,16 @@ const ALIASES_URL = "search_aliases.csv";
 
 let allProducts = [];
 let fuse = null;
+let fuseSupplier = null;
+let searchMode = "normal"; // "normal" | "supplier"
 let activeVertical = "all";
 let activeStatus = "all";
 let activeCategory = "all";
 let selectedItems = new Map(); // stock_code -> product object
+let expandedSupplierRefs = new Set(); // stock codes where "+N more" was clicked
 let currentMatches = [];
 let displayCount = 0;
+let lastTotalMatchCount = 0;
 const PAGE_SIZE = 40;
 const HARD_CAP = 200;
 
@@ -486,6 +494,20 @@ async function loadData() {
             includeMatches: true
         });
 
+        // Dedicated index for "Supplier stock code" mode — only products with at least
+        // one supplier ref, matched purely on supplier code/name. Kept separate from the
+        // main index so switching modes gives a clean, predictable result set rather than
+        // filtering blended relevance scores after the fact.
+        fuseSupplier = new Fuse(allProducts.filter(p => p.supplier_refs && p.supplier_refs.length > 0), {
+            keys: [
+                { name: "supplier_ref_codes", weight: 0.7 },
+                { name: "supplier_ref_names", weight: 0.3 }
+            ],
+            threshold: 0.35,
+            ignoreLocation: true,
+            includeMatches: true
+        });
+
         buildVerticalFilters();
         document.getElementById("search").disabled = false;
         document.getElementById("start-hint").textContent = "Start typing to search the catalogue — active and inactive codes.";
@@ -532,6 +554,19 @@ function buildVerticalFilters() {
         activeCategory = e.target.value;
         runSearch();
     });
+
+    document.querySelectorAll('#mode-toggle .filter-chip').forEach(chip => {
+        chip.addEventListener("click", () => {
+            document.querySelectorAll('#mode-toggle .filter-chip').forEach(c => c.classList.remove("active"));
+            chip.classList.add("active");
+            searchMode = chip.dataset.mode;
+            const searchInput = document.getElementById("search");
+            searchInput.placeholder = searchMode === "supplier"
+                ? "Search by supplier's own stock code..."
+                : "Search by stock code, name, or category...";
+            runSearch();
+        });
+    });
 }
 
 function updateCategoryOptions(matchesBeforeCategoryFilter) {
@@ -556,7 +591,8 @@ function updateCategoryOptions(matchesBeforeCategoryFilter) {
 }
 
 function runSearch() {
-    if (!fuse) return;
+    if (!fuse || !fuseSupplier) return;
+    const activeFuse = searchMode === "supplier" ? fuseSupplier : fuse;
     const term = document.getElementById("search").value.trim();
     const startHint = document.getElementById("start-hint");
     const emptyState = document.getElementById("empty-state");
@@ -583,7 +619,7 @@ function runSearch() {
     startHint.style.display = "none";
     cta.classList.add("show");
 
-    let rawMatches = fuse.search(term);
+    let rawMatches = activeFuse.search(term);
 
     let matches = rawMatches.map(r => {
         const item = { ...r.item, _matches: r.matches };
@@ -626,6 +662,7 @@ function runSearch() {
 
     emptyState.style.display = "none";
     emptyState.innerHTML = "";
+    lastTotalMatchCount = matches.length;
     renderResultsPage(matches.length);
 }
 
@@ -742,14 +779,17 @@ function renderRow(p) {
     const SUPPLIER_REFS_SHOWN = 4;
     let supplierRefsHtml = "";
     if (p.supplier_refs && p.supplier_refs.length > 0) {
-        const shown = p.supplier_refs.slice(0, SUPPLIER_REFS_SHOWN);
+        const isExpanded = searchMode === "supplier" || expandedSupplierRefs.has(p.stock_code);
+        const shown = isExpanded ? p.supplier_refs : p.supplier_refs.slice(0, SUPPLIER_REFS_SHOWN);
         const pairs = shown.map((ref, idx) => {
             const codeH = highlightArrayItem(ref.code, p._matches, "supplier_ref_codes", idx);
             const nameH = highlightArrayItem(ref.supplier, p._matches, "supplier_ref_names", idx);
             return `${codeH} (${nameH})`;
         });
         const remaining = p.supplier_refs.length - SUPPLIER_REFS_SHOWN;
-        const suffix = remaining > 0 ? ` +${remaining} more` : "";
+        const suffix = (!isExpanded && remaining > 0)
+            ? ` <a href="#" class="expand-refs" style="color:var(--accent);">+${remaining} more</a>`
+            : "";
         supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Supplier refs: ${pairs.join(", ")}${suffix}</div>`;
     }
 
@@ -769,6 +809,15 @@ function renderRow(p) {
         </div>
         <div class="result-actions"></div>
     `;
+
+    const expandLink = row.querySelector(".expand-refs");
+    if (expandLink) {
+        expandLink.addEventListener("click", (e) => {
+            e.preventDefault();
+            expandedSupplierRefs.add(p.stock_code);
+            renderResultsPage(lastTotalMatchCount);
+        });
+    }
 
     row.querySelector(".code-tag").addEventListener("click", () => {
         navigator.clipboard.writeText(p.stock_code).then(() => {
