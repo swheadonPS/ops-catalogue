@@ -494,7 +494,6 @@ function buildVerticalFilters() {
             document.querySelectorAll('#filters .filter-chip').forEach(c => c.classList.remove("active"));
             chip.classList.add("active");
             activeVertical = v;
-            buildCategoryFilter();
             runSearch();
         });
         wrap.appendChild(chip);
@@ -503,7 +502,6 @@ function buildVerticalFilters() {
         document.querySelectorAll('#filters .filter-chip').forEach(c => c.classList.remove("active"));
         e.target.classList.add("active");
         activeVertical = "all";
-        buildCategoryFilter();
         runSearch();
     });
 
@@ -516,22 +514,30 @@ function buildVerticalFilters() {
         });
     });
 
-    buildCategoryFilter();
     document.getElementById("category-filter").addEventListener("change", (e) => {
         activeCategory = e.target.value;
         runSearch();
     });
 }
 
-function buildCategoryFilter() {
+function updateCategoryOptions(matchesBeforeCategoryFilter) {
     const select = document.getElementById("category-filter");
     const wrap = document.getElementById("category-filter-wrap");
-    const pool = activeVertical === "all" ? allProducts : allProducts.filter(p => p.vertical === activeVertical);
-    const categories = [...new Set(pool.map(p => p.category_l1).filter(Boolean))].sort();
+
+    const counts = {};
+    matchesBeforeCategoryFilter.forEach(p => {
+        if (!p.category_l1) return;
+        counts[p.category_l1] = (counts[p.category_l1] || 0) + 1;
+    });
+    const categories = Object.keys(counts).sort();
 
     select.innerHTML = '<option value="all">All categories</option>' +
-        categories.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join("");
-    activeCategory = "all";
+        categories.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)} (${counts[c]})</option>`).join("");
+
+    if (activeCategory !== "all" && !categories.includes(activeCategory)) {
+        activeCategory = "all";
+    }
+    select.value = activeCategory;
     wrap.style.display = categories.length > 0 ? "block" : "none";
 }
 
@@ -556,6 +562,7 @@ function runSearch() {
         emptyState.innerHTML = "";
         resultsCount.textContent = "";
         cta.classList.remove("show");
+        document.getElementById("category-filter-wrap").style.display = "none";
         return;
     }
 
@@ -575,6 +582,9 @@ function runSearch() {
     if (activeStatus !== "all") {
         matches = matches.filter(p => activeStatus === "active" ? p.active : !p.active);
     }
+
+    updateCategoryOptions(matches);
+
     if (activeCategory !== "all") {
         matches = matches.filter(p => p.category_l1 === activeCategory);
     }
