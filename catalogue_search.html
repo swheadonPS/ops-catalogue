@@ -1019,10 +1019,6 @@ function openModal(type, product) {
             </div>
             ${commercialFields}
             ${commonFields}
-            <div class="field">
-                <label>Reason for use <span class="req">*</span></label>
-                <textarea name="reason" required placeholder="What job/contract is this for, and why this code?"></textarea>
-            </div>
             ${submitRow()}
         `;
     } else if (type === "clone") {
@@ -1041,16 +1037,8 @@ function openModal(type, product) {
                 <label>New product description <span class="req">*</span></label>
                 <input type="text" name="new_description" required placeholder="What should the new code be called?">
             </div>
-            <div class="field">
-                <label>What's different from the source product?</label>
-                <textarea name="difference" placeholder="e.g. different size, different supplier, different spec"></textarea>
-            </div>
             ${commercialFields}
             ${commonFields}
-            <div class="field">
-                <label>Why doesn't the source code work as-is?</label>
-                <textarea name="reason"></textarea>
-            </div>
             ${submitRow()}
         `;
     } else if (type === "new") {
