@@ -449,7 +449,7 @@ async function loadData() {
             throw new Error(`Data file returned ${res.status} — check catalogue_search_data.json exists in this folder`);
         }
         const data = await res.json();
-        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs"];
+        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs", "supplier_count", "won_contracts_12mo"];
         const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
 
         allProducts = (data.products || []).map(row => {
@@ -790,8 +790,16 @@ function renderRow(p) {
         const suffix = (!isExpanded && remaining > 0)
             ? ` <a href="#" class="expand-refs" style="color:var(--accent);">+${remaining} more</a>`
             : "";
-        supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Supplier refs: ${pairs.join(", ")}${suffix}</div>`;
+        const label = p.supplier_count > 0
+            ? `Supplier refs (${p.supplier_count} current)`
+            : `Supplier refs (historical only, no current supplier)`;
+        supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">${label}: ${pairs.join(", ")}${suffix}</div>`;
     }
+
+    const HIGH_DEMAND_THRESHOLD = 100;
+    const highDemandBadge = p.won_contracts_12mo > HIGH_DEMAND_THRESHOLD
+        ? `<span class="badge" title="${p.won_contracts_12mo} won contracts in the last 12 months" style="background:rgba(124,106,247,0.15); color:var(--accent);">\uD83D\uDD25 High demand</span>`
+        : "";
 
     row.innerHTML = `
         <div class="result-left">
@@ -803,6 +811,7 @@ function renderRow(p) {
                     <span class="badge ${p.active ? "active" : "inactive"}">${p.active ? "Active" : "Inactive"}</span>
                     <span>${escapeHtml(p.vertical)}</span>
                     ${catPath ? `<span>\u00b7 ${escapeHtml(catPath)}</span>` : ""}
+                    ${highDemandBadge}
                 </div>
                 ${supplierRefsHtml}
             </div>
