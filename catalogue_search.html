@@ -113,6 +113,45 @@
         align-items: center;
         gap: 12px;
     }
+    .result-row.selected {
+        border-color: var(--accent);
+        background: rgba(124, 106, 247, 0.08);
+    }
+    .result-checkbox {
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+        accent-color: var(--accent);
+    }
+    .result-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+    }
+    #selection-bar {
+        display: none;
+        position: sticky;
+        bottom: 16px;
+        margin-top: 14px;
+        background: var(--panel-alt);
+        border: 1px solid var(--accent);
+        border-radius: 10px;
+        padding: 12px 18px;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    }
+    #selection-bar.show { display: flex; }
+    #selection-bar .sel-count {
+        font-size: 13.5px;
+        color: var(--text);
+    }
+    #selection-bar .sel-actions {
+        display: flex;
+        gap: 8px;
+    }
     .result-row:nth-child(even) {
         background: var(--panel-alt);
     }
@@ -310,6 +349,14 @@
         <p>Still can't find what you need?</p>
         <button class="btn primary" id="btn-brand-new">Request a brand new stock code</button>
     </div>
+
+    <div id="selection-bar">
+        <span class="sel-count" id="sel-count">0 selected</span>
+        <div class="sel-actions">
+            <button class="btn" id="btn-clear-selection">Clear</button>
+            <button class="btn primary" id="btn-request-multiple">Request selected</button>
+        </div>
+    </div>
 </main>
 
 <!-- Modal -->
@@ -326,10 +373,41 @@
 <script>
 const RECIPIENT = "onecallreports@hss.com";
 const DATA_URL = "catalogue_search_data.json";
+const ALIASES_URL = "search_aliases.csv";
 
 let allProducts = [];
 let fuse = null;
 let activeVertical = "all";
+let selectedItems = new Map(); // stock_code -> product object
+
+function parseAliasesCSV(text) {
+    const lines = text.trim().split("\n").slice(1); // skip header
+    const byCategory = {};
+    const byStockCode = {};
+    lines.forEach(line => {
+        const [type, match, aliases] = line.split(",");
+        if (!type || !match || !aliases) return;
+        const terms = aliases.trim().split(";").map(a => a.trim()).filter(Boolean);
+        if (type.trim() === "category") {
+            byCategory[match.trim().toLowerCase()] = terms;
+        } else if (type.trim() === "stock_code") {
+            byStockCode[match.trim().toLowerCase()] = terms;
+        }
+    });
+    return { byCategory, byStockCode };
+}
+
+async function loadAliases() {
+    try {
+        const res = await fetch(ALIASES_URL, { cache: "no-store" });
+        if (!res.ok) return { byCategory: {}, byStockCode: {} };
+        const text = await res.text();
+        return parseAliasesCSV(text);
+    } catch (err) {
+        console.warn("No aliases file found or failed to load — search will work without aliases.", err);
+        return { byCategory: {}, byStockCode: {} };
+    }
+}
 
 async function loadData() {
     document.getElementById("search").disabled = true;
@@ -340,10 +418,22 @@ async function loadData() {
             throw new Error(`Data file returned ${res.status} — check catalogue_search_data.json exists in this folder`);
         }
         const data = await res.json();
-        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active"];
+        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases"];
+        const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
+
         allProducts = (data.products || []).map(row => {
             const obj = {};
             cols.forEach((col, i) => { obj[col] = row[i]; });
+
+            // Real, curated aliases (e.g. "Spider Boom") come straight from the export's
+            // own "aliases" column. The manual CSV is just a supplementary layer on top,
+            // for terms neither the DB nor the category name covers (e.g. "portaloo").
+            const dbAliases = obj.aliases ? [obj.aliases] : [];
+            const catAliases = aliasLookup.byCategory[(obj.category_l1 || "").toLowerCase()] || [];
+            const cat2Aliases = aliasLookup.byCategory[(obj.category_l2 || "").toLowerCase()] || [];
+            const codeAliases = aliasLookup.byStockCode[(obj.stock_code || "").toLowerCase()] || [];
+            obj.search_aliases = [...dbAliases, ...catAliases, ...cat2Aliases, ...codeAliases].join(" ");
+
             return obj;
         });
         document.getElementById("meta").textContent =
@@ -351,11 +441,12 @@ async function loadData() {
 
         fuse = new Fuse(allProducts, {
             keys: [
-                { name: "stock_code", weight: 0.35 },
-                { name: "stock_name", weight: 0.4 },
+                { name: "stock_code", weight: 0.3 },
+                { name: "stock_name", weight: 0.3 },
                 { name: "category_l1", weight: 0.1 },
                 { name: "category_l2", weight: 0.1 },
-                { name: "vertical", weight: 0.05 }
+                { name: "vertical", weight: 0.05 },
+                { name: "search_aliases", weight: 0.15 }
             ],
             threshold: 0.35,
             ignoreLocation: true
@@ -438,21 +529,35 @@ function runSearch() {
 function renderRow(p) {
     const row = document.createElement("div");
     row.className = "result-row";
+    if (selectedItems.has(p.stock_code)) row.classList.add("selected");
 
     const catPath = [p.category_l1, p.category_l2].filter(Boolean).join(" › ");
 
     row.innerHTML = `
-        <div class="result-info">
-            <div class="result-name">${escapeHtml(p.stock_name)}</div>
-            <div class="result-meta">
-                <span class="code-tag">${escapeHtml(p.stock_code)}</span>
-                <span class="badge ${p.active ? "active" : "inactive"}">${p.active ? "Active" : "Inactive"}</span>
-                <span>${escapeHtml(p.vertical)}</span>
-                ${catPath ? `<span>\u00b7 ${escapeHtml(catPath)}</span>` : ""}
+        <div class="result-left">
+            <input type="checkbox" class="result-checkbox" ${selectedItems.has(p.stock_code) ? "checked" : ""}>
+            <div class="result-info">
+                <div class="result-name">${escapeHtml(p.stock_name)}</div>
+                <div class="result-meta">
+                    <span class="code-tag">${escapeHtml(p.stock_code)}</span>
+                    <span class="badge ${p.active ? "active" : "inactive"}">${p.active ? "Active" : "Inactive"}</span>
+                    <span>${escapeHtml(p.vertical)}</span>
+                    ${catPath ? `<span>\u00b7 ${escapeHtml(catPath)}</span>` : ""}
+                </div>
             </div>
         </div>
         <div class="result-actions"></div>
     `;
+
+    row.querySelector(".result-checkbox").addEventListener("change", (e) => {
+        if (e.target.checked) {
+            selectedItems.set(p.stock_code, p);
+        } else {
+            selectedItems.delete(p.stock_code);
+        }
+        row.classList.toggle("selected", e.target.checked);
+        updateSelectionBar();
+    });
 
     const actions = row.querySelector(".result-actions");
 
@@ -473,6 +578,29 @@ function renderRow(p) {
     return row;
 }
 
+function updateSelectionBar() {
+    const bar = document.getElementById("selection-bar");
+    const count = document.getElementById("sel-count");
+    if (selectedItems.size > 0) {
+        bar.classList.add("show");
+        count.textContent = `${selectedItems.size} selected`;
+    } else {
+        bar.classList.remove("show");
+    }
+}
+
+document.getElementById("btn-clear-selection").addEventListener("click", () => {
+    selectedItems.clear();
+    updateSelectionBar();
+    runSearch(); // re-render to uncheck visible rows
+});
+
+document.getElementById("btn-request-multiple").addEventListener("click", () => {
+    if (selectedItems.size === 0) return;
+    openModal("multi", Array.from(selectedItems.values()));
+});
+
+
 function escapeHtml(str) {
     const div = document.createElement("div");
     div.textContent = str == null ? "" : String(str);
@@ -480,6 +608,8 @@ function escapeHtml(str) {
 }
 
 /* ---------- Modal / request forms ---------- */
+
+let currentMultiItems = [];
 
 function openModal(type, product) {
     const overlay = document.getElementById("overlay");
@@ -513,7 +643,26 @@ function openModal(type, product) {
         </div>
     `;
 
-    if (type === "reactivate") {
+    if (type === "multi") {
+        currentMultiItems = product; // an array, passed in from btn-request-multiple
+        title.textContent = `Request ${currentMultiItems.length} products`;
+        sub.textContent = "One request covering everything you've selected — instead of separate tickets for each.";
+        const itemsList = currentMultiItems.map(item => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:13.5px;">
+                <span>${escapeHtml(item.stock_name)} <span class="code-tag">${escapeHtml(item.stock_code)}</span></span>
+                <span class="badge ${item.active ? "active" : "inactive"}">${item.active ? "Use as template" : "Reactivate"}</span>
+            </div>
+        `).join("");
+        form.innerHTML = `
+            <div style="max-height:180px; overflow-y:auto; margin-bottom:14px;">${itemsList}</div>
+            ${commonFields}
+            <div class="field">
+                <label>Reason for use <span class="req">*</span></label>
+                <textarea name="reason" required placeholder="What job/contract is this for? Applies to all items above."></textarea>
+            </div>
+            ${submitRow()}
+        `;
+    } else if (type === "reactivate") {
         title.textContent = "Reactivate a stock code";
         sub.textContent = "This code already exists — we'll just bring it back to active status.";
         form.innerHTML = `
@@ -646,22 +795,40 @@ document.getElementById("btn-brand-new").addEventListener("click", () => openMod
 function submitRequest(type, form) {
     const data = Object.fromEntries(new FormData(form).entries());
 
-    const prefixMap = {
-        reactivate: `[STOCK - REACTIVATE] ${data.stock_code} - ${data.stock_name}`,
-        clone: `[STOCK - CLONE] from ${data.source_stock_code} - ${data.new_description}`,
-        new: `[STOCK - NEW] ${data.new_description}`
-    };
+    let subject, body;
 
-    const bodyLines = Object.entries(data).map(([key, value]) => {
-        const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-        return `${label}: ${value}`;
-    });
-
-    const subject = prefixMap[type];
-    const body = bodyLines.join("\n");
+    if (type === "multi") {
+        subject = `[STOCK - MULTIPLE] ${currentMultiItems.length} products requested by ${data.requester_name}`;
+        const itemLines = currentMultiItems.map(item =>
+            `- ${item.stock_code} - ${item.stock_name} (${item.active ? "Use as template" : "Reactivate"})`
+        ).join("\n");
+        const otherLines = Object.entries(data).map(([key, value]) => {
+            const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+            return `${label}: ${value}`;
+        }).join("\n");
+        body = `Products requested:\n${itemLines}\n\n${otherLines}`;
+    } else {
+        const prefixMap = {
+            reactivate: `[STOCK - REACTIVATE] ${data.stock_code} - ${data.stock_name}`,
+            clone: `[STOCK - CLONE] from ${data.source_stock_code} - ${data.new_description}`,
+            new: `[STOCK - NEW] ${data.new_description}`
+        };
+        const bodyLines = Object.entries(data).map(([key, value]) => {
+            const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+            return `${label}: ${value}`;
+        });
+        subject = prefixMap[type];
+        body = bodyLines.join("\n");
+    }
 
     const mailto = `mailto:${RECIPIENT}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailto;
+
+    if (type === "multi") {
+        selectedItems.clear();
+        updateSelectionBar();
+        runSearch();
+    }
 
     closeModal();
     showToast("Opening your email client — check the draft and hit send.");
