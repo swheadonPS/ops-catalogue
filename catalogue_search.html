@@ -342,6 +342,7 @@
     <div id="start-hint">Start typing to search the catalogue — active and inactive codes.</div>
     <div id="results-count"></div>
     <div id="results"></div>
+    <div id="results-footer" style="text-align:center; margin-top:14px;"></div>
     <div id="empty-state">
         <p><strong>No matches found.</strong> Check the spelling, or try a shorter/broader term.</p>
     </div>
@@ -380,6 +381,10 @@ let allProducts = [];
 let fuse = null;
 let activeVertical = "all";
 let selectedItems = new Map(); // stock_code -> product object
+let currentMatches = [];
+let displayCount = 0;
+const PAGE_SIZE = 40;
+const HARD_CAP = 200;
 
 function parseAliasesCSV(text) {
     const lines = text.trim().split("\n").slice(1); // skip header
@@ -495,8 +500,10 @@ function runSearch() {
     const resultsCount = document.getElementById("results-count");
     const resultsWrap = document.getElementById("results");
     const cta = document.getElementById("newcode-cta");
+    const footer = document.getElementById("results-footer");
 
     resultsWrap.innerHTML = "";
+    footer.innerHTML = "";
 
     if (!term) {
         startHint.style.display = "block";
@@ -513,18 +520,47 @@ function runSearch() {
     if (activeVertical !== "all") {
         matches = matches.filter(p => p.vertical === activeVertical);
     }
-    matches = matches.slice(0, 40);
 
-    if (matches.length === 0) {
+    currentMatches = matches.slice(0, HARD_CAP);
+    displayCount = Math.min(PAGE_SIZE, currentMatches.length);
+
+    if (currentMatches.length === 0) {
         emptyState.style.display = "block";
         resultsCount.textContent = "";
         return;
     }
 
     emptyState.style.display = "none";
-    resultsCount.textContent = `${matches.length} result${matches.length === 1 ? "" : "s"}`;
+    renderResultsPage(matches.length);
+}
 
-    matches.forEach(p => resultsWrap.appendChild(renderRow(p)));
+function renderResultsPage(totalMatchCount) {
+    const resultsCount = document.getElementById("results-count");
+    const resultsWrap = document.getElementById("results");
+    const footer = document.getElementById("results-footer");
+
+    resultsCount.textContent = `${totalMatchCount} result${totalMatchCount === 1 ? "" : "s"}` +
+        (totalMatchCount > HARD_CAP ? ` (showing first ${HARD_CAP})` : "");
+
+    resultsWrap.innerHTML = "";
+    currentMatches.slice(0, displayCount).forEach(p => resultsWrap.appendChild(renderRow(p)));
+
+    footer.innerHTML = "";
+    if (totalMatchCount > HARD_CAP) {
+        const msg = document.createElement("p");
+        msg.style.cssText = "font-size:13px; color:var(--inactive); margin-top:4px;";
+        msg.textContent = `${totalMatchCount} matches is a lot — try narrowing your search for a more useful list.`;
+        footer.appendChild(msg);
+    } else if (displayCount < currentMatches.length) {
+        const btn = document.createElement("button");
+        btn.className = "btn";
+        btn.textContent = `Show ${Math.min(PAGE_SIZE, currentMatches.length - displayCount)} more`;
+        btn.addEventListener("click", () => {
+            displayCount = Math.min(displayCount + PAGE_SIZE, currentMatches.length);
+            renderResultsPage(totalMatchCount);
+        });
+        footer.appendChild(btn);
+    }
 }
 
 function renderRow(p) {
