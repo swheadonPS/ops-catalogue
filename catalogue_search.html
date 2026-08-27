@@ -437,7 +437,7 @@ async function loadData() {
             throw new Error(`Data file returned ${res.status} — check catalogue_search_data.json exists in this folder`);
         }
         const data = await res.json();
-        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases"];
+        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_codes"];
         const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
 
         allProducts = (data.products || []).map(row => {
@@ -465,7 +465,8 @@ async function loadData() {
                 { name: "category_l1", weight: 0.1 },
                 { name: "category_l2", weight: 0.1 },
                 { name: "vertical", weight: 0.05 },
-                { name: "search_aliases", weight: 0.15 }
+                { name: "search_aliases", weight: 0.1 },
+                { name: "supplier_codes", weight: 0.05 }
             ],
             threshold: 0.35,
             ignoreLocation: true,
@@ -724,6 +725,7 @@ function renderRow(p) {
                     <span>${escapeHtml(p.vertical)}</span>
                     ${catPath ? `<span>\u00b7 ${escapeHtml(catPath)}</span>` : ""}
                 </div>
+                ${p.supplier_codes ? `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Supplier refs: ${escapeHtml(p.supplier_codes)}</div>` : ""}
             </div>
         </div>
         <div class="result-actions"></div>
