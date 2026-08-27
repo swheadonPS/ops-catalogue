@@ -259,6 +259,10 @@
         width: 100%;
         max-width: 560px;
         padding: 26px 26px 22px;
+        transition: max-width 0.15s;
+    }
+    .modal.wide {
+        max-width: 780px;
     }
     .modal h2 {
         margin: 0 0 4px;
@@ -437,7 +441,7 @@ async function loadData() {
             throw new Error(`Data file returned ${res.status} — check catalogue_search_data.json exists in this folder`);
         }
         const data = await res.json();
-        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_codes"];
+        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs"];
         const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
 
         allProducts = (data.products || []).map(row => {
@@ -453,6 +457,14 @@ async function loadData() {
             const codeAliases = aliasLookup.byStockCode[(obj.stock_code || "").toLowerCase()] || [];
             obj.search_aliases = [...dbAliases, ...catAliases, ...cat2Aliases, ...codeAliases].join(" ");
 
+            // supplier_refs is a list of {code, supplier} pairs. Kept as separate flat arrays
+            // for Fuse so each code/name is matched (and highlighted) independently, rather
+            // than fuzzy-matching one long joined string — that was producing false-positive
+            // matches on stray single digits across the whole blob.
+            obj.supplier_refs = obj.supplier_refs || [];
+            obj.supplier_ref_codes = obj.supplier_refs.map(r => r.code || "");
+            obj.supplier_ref_names = obj.supplier_refs.map(r => r.supplier || "");
+
             return obj;
         });
         document.getElementById("meta").textContent =
@@ -466,7 +478,8 @@ async function loadData() {
                 { name: "category_l2", weight: 0.1 },
                 { name: "vertical", weight: 0.05 },
                 { name: "search_aliases", weight: 0.1 },
-                { name: "supplier_codes", weight: 0.05 }
+                { name: "supplier_ref_codes", weight: 0.05 },
+                { name: "supplier_ref_names", weight: 0.03 }
             ],
             threshold: 0.35,
             ignoreLocation: true,
@@ -687,15 +700,14 @@ function exportMatchesToCSV() {
     URL.revokeObjectURL(url);
 }
 
-function highlightMatch(text, matches, keyName) {
+function highlightIndices(text, indices) {
     if (!text) return "";
-    const matchObj = (matches || []).find(m => m.key === keyName);
-    if (!matchObj || !matchObj.indices || matchObj.indices.length === 0) return escapeHtml(text);
+    if (!indices || indices.length === 0) return escapeHtml(text);
 
     let result = "";
     let lastIndex = 0;
-    const indices = [...matchObj.indices].sort((a, b) => a[0] - b[0]);
-    indices.forEach(([start, end]) => {
+    const sorted = [...indices].sort((a, b) => a[0] - b[0]);
+    sorted.forEach(([start, end]) => {
         if (start < lastIndex) return;
         result += escapeHtml(text.slice(lastIndex, start));
         result += `<mark style="background:rgba(124,106,247,0.35); color:inherit; border-radius:2px; padding:0 1px;">${escapeHtml(text.slice(start, end + 1))}</mark>`;
@@ -703,6 +715,19 @@ function highlightMatch(text, matches, keyName) {
     });
     result += escapeHtml(text.slice(lastIndex));
     return result;
+}
+
+function highlightMatch(text, matches, keyName) {
+    const matchObj = (matches || []).find(m => m.key === keyName && m.arrayIndex === undefined);
+    return highlightIndices(text, matchObj ? matchObj.indices : null);
+}
+
+// For array-valued Fuse keys (e.g. supplier_ref_codes) — Fuse returns one match entry
+// per matched array element, tagged with arrayIndex. This finds the right one so a
+// specific supplier ref can be highlighted on its own, not the whole list at once.
+function highlightArrayItem(text, matches, keyName, idx) {
+    const matchObj = (matches || []).find(m => m.key === keyName && m.arrayIndex === idx);
+    return highlightIndices(text, matchObj ? matchObj.indices : null);
 }
 
 function renderRow(p) {
@@ -713,6 +738,20 @@ function renderRow(p) {
     const catPath = [p.category_l1, p.category_l2].filter(Boolean).join(" › ");
     const nameHtml = highlightMatch(p.stock_name, p._matches, "stock_name");
     const codeHtml = highlightMatch(p.stock_code, p._matches, "stock_code");
+
+    const SUPPLIER_REFS_SHOWN = 4;
+    let supplierRefsHtml = "";
+    if (p.supplier_refs && p.supplier_refs.length > 0) {
+        const shown = p.supplier_refs.slice(0, SUPPLIER_REFS_SHOWN);
+        const pairs = shown.map((ref, idx) => {
+            const codeH = highlightArrayItem(ref.code, p._matches, "supplier_ref_codes", idx);
+            const nameH = highlightArrayItem(ref.supplier, p._matches, "supplier_ref_names", idx);
+            return `${codeH} (${nameH})`;
+        });
+        const remaining = p.supplier_refs.length - SUPPLIER_REFS_SHOWN;
+        const suffix = remaining > 0 ? ` +${remaining} more` : "";
+        supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Supplier refs: ${pairs.join(", ")}${suffix}</div>`;
+    }
 
     row.innerHTML = `
         <div class="result-left">
@@ -725,7 +764,7 @@ function renderRow(p) {
                     <span>${escapeHtml(p.vertical)}</span>
                     ${catPath ? `<span>\u00b7 ${escapeHtml(catPath)}</span>` : ""}
                 </div>
-                ${p.supplier_codes ? `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Supplier refs: ${highlightMatch(p.supplier_codes, p._matches, "supplier_codes")}</div>` : ""}
+                ${supplierRefsHtml}
             </div>
         </div>
         <div class="result-actions"></div>
@@ -806,6 +845,9 @@ function openModal(type, product) {
     const title = document.getElementById("modal-title");
     const sub = document.getElementById("modal-sub");
     const form = document.getElementById("modal-form");
+    const modal = document.querySelector(".modal");
+
+    modal.classList.toggle("wide", type === "multi");
 
     form.innerHTML = "";
     form.dataset.type = type;
@@ -859,11 +901,11 @@ function openModal(type, product) {
                 <input type="text" name="transport_cost" required>
             </div>
         </div>
+        <p style="font-size:12px; color:var(--inactive); margin:-8px 0 14px;">* If the rate is daily or something other than Weekly/Consumable, note it in the comments below.</p>
         <div class="field">
             <label>Supplier stock code</label>
             <input type="text" name="supplier_stock_code" placeholder="Optional — the supplier's own reference, if known">
         </div>
-        <p style="font-size:12px; color:var(--inactive); margin:-8px 0 14px;">* If the rate is daily or something other than Weekly/Consumable, note it in the comments below.</p>
     `;
 
     if (type === "multi") {
@@ -982,16 +1024,6 @@ function openModal(type, product) {
             </div>
             <div class="field-row">
                 <div class="field">
-                    <label>Supplier name <span class="req">*</span></label>
-                    <input type="text" name="supplier_name" required>
-                </div>
-                <div class="field">
-                    <label>Supplier stock code</label>
-                    <input type="text" name="supplier_stock_code" placeholder="Optional">
-                </div>
-            </div>
-            <div class="field-row">
-                <div class="field">
                     <label>Bulk load <span class="req">*</span></label>
                     <input type="text" name="bulk_load" required>
                 </div>
@@ -1000,36 +1032,12 @@ function openModal(type, product) {
                     <input type="text" name="sla" required>
                 </div>
             </div>
-            <div class="field-row">
-                <div class="field">
-                    <label>Cut off time <span class="req">*</span></label>
-                    <input type="text" name="cutoff_time" required>
-                </div>
-                <div class="field">
-                    <label>Cost <span class="req">*</span></label>
-                    <input type="text" name="cost" required>
-                </div>
-            </div>
-            <div class="field-row">
-                <div class="field">
-                    <label>Transport cost <span class="req">*</span></label>
-                    <input type="text" name="transport_cost" required>
-                </div>
-            </div>
             <div class="field">
-                <label>Rate structure <span class="req">*</span></label>
-                <select name="rate_structure" required>
-                    <option value="">-- select --</option>
-                    <option value="Weekly">Weekly</option>
-                    <option value="Consumable">Consumable</option>
-                </select>
+                <label>Cut off time <span class="req">*</span></label>
+                <input type="text" name="cutoff_time" required>
             </div>
-            <p style="font-size:12px; color:var(--inactive); margin:-8px 0 14px;">* If the rate is daily or something other than Weekly/Consumable, note it in the comments below.</p>
+            ${commercialFields}
             ${commonFields}
-            <div class="field">
-                <label>Why doesn't anything existing cover this? <span class="req">*</span></label>
-                <textarea name="reason" required placeholder="Tell us what you searched and why it doesn't fit — this helps us avoid creating a duplicate"></textarea>
-            </div>
             ${submitRow()}
         `;
     }
