@@ -324,6 +324,7 @@
 <body>
 
 <header>
+    <img src="logo.png" alt="HSS Pro" style="height: 44px; margin-bottom: 10px;">
     <h1>Stock Code Search</h1>
     <p>Search the full catalogue — including inactive codes — before requesting a new one.</p>
     <div id="meta"></div>
@@ -643,18 +644,73 @@ function openModal(type, product) {
         </div>
     `;
 
+    const commercialFields = `
+        <div class="field-row">
+            <div class="field">
+                <label>Supplier name <span class="req">*</span></label>
+                <input type="text" name="supplier_name" required>
+            </div>
+            <div class="field">
+                <label>Cost <span class="req">*</span></label>
+                <input type="text" name="cost" required>
+            </div>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Rate structure <span class="req">*</span></label>
+                <select name="rate_structure" required>
+                    <option value="">-- select --</option>
+                    <option value="Weekly">Weekly</option>
+                    <option value="Consumable">Consumable</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Transport cost <span class="req">*</span></label>
+                <input type="text" name="transport_cost" required>
+            </div>
+        </div>
+        <p style="font-size:12px; color:var(--inactive); margin:-8px 0 14px;">* If the rate is daily or something other than Weekly/Consumable, note it in the comments below.</p>
+    `;
+
     if (type === "multi") {
         currentMultiItems = product; // an array, passed in from btn-request-multiple
         title.textContent = `Request ${currentMultiItems.length} products`;
         sub.textContent = "One request covering everything you've selected — instead of separate tickets for each.";
-        const itemsList = currentMultiItems.map(item => `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:13.5px;">
-                <span>${escapeHtml(item.stock_name)} <span class="code-tag">${escapeHtml(item.stock_code)}</span></span>
-                <span class="badge ${item.active ? "active" : "inactive"}">${item.active ? "Use as template" : "Reactivate"}</span>
-            </div>
+        const itemRows = currentMultiItems.map((item, i) => `
+            <tr>
+                <td style="padding:6px 8px 6px 0; font-size:13px; white-space:nowrap;">
+                    ${escapeHtml(item.stock_name)}<br>
+                    <span class="code-tag">${escapeHtml(item.stock_code)}</span>
+                    <span class="badge ${item.active ? "active" : "inactive"}" style="display:block; width:fit-content; margin-top:3px;">${item.active ? "Template" : "Reactivate"}</span>
+                </td>
+                <td style="padding:6px 4px;"><input type="text" name="item_supplier_${i}" placeholder="Supplier" required style="width:100%; padding:6px 8px; font-size:13px; border-radius:5px; border:1px solid var(--border); background:var(--bg); color:var(--text);"></td>
+                <td style="padding:6px 4px;"><input type="text" name="item_cost_${i}" placeholder="Cost" required style="width:100%; padding:6px 8px; font-size:13px; border-radius:5px; border:1px solid var(--border); background:var(--bg); color:var(--text);"></td>
+                <td style="padding:6px 4px;">
+                    <select name="item_rate_${i}" required style="width:100%; padding:6px 8px; font-size:13px; border-radius:5px; border:1px solid var(--border); background:var(--bg); color:var(--text);">
+                        <option value="">--</option>
+                        <option value="Weekly">Weekly</option>
+                        <option value="Consumable">Consumable</option>
+                    </select>
+                </td>
+                <td style="padding:6px 0 6px 4px;"><input type="text" name="item_transport_${i}" placeholder="Transport" required style="width:100%; padding:6px 8px; font-size:13px; border-radius:5px; border:1px solid var(--border); background:var(--bg); color:var(--text);"></td>
+            </tr>
         `).join("");
         form.innerHTML = `
-            <div style="max-height:180px; overflow-y:auto; margin-bottom:14px;">${itemsList}</div>
+            <div style="overflow-x:auto; margin-bottom:14px;">
+                <table style="border-collapse:collapse; width:100%; min-width:520px;">
+                    <thead>
+                        <tr style="font-size:11.5px; color:var(--subtext); text-align:left;">
+                            <th style="padding:0 8px 6px 0;">Product</th>
+                            <th style="padding:0 4px 6px;">Supplier</th>
+                            <th style="padding:0 4px 6px;">Cost</th>
+                            <th style="padding:0 4px 6px;">Rate structure</th>
+                            <th style="padding:0 0 6px 4px;">Transport</th>
+                        </tr>
+                    </thead>
+                    <tbody>${itemRows}</tbody>
+                </table>
+            </div>
+            <p style="font-size:12px; color:var(--inactive); margin:-8px 0 14px;">* If a rate is daily or something other than Weekly/Consumable, note it in the reason below.</p>
             ${commonFields}
             <div class="field">
                 <label>Reason for use <span class="req">*</span></label>
@@ -674,6 +730,7 @@ function openModal(type, product) {
                 <label>Stock name</label>
                 <input type="text" name="stock_name" value="${escapeAttr(product.stock_name)}" readonly>
             </div>
+            ${commercialFields}
             ${commonFields}
             <div class="field">
                 <label>Reason for use <span class="req">*</span></label>
@@ -701,6 +758,7 @@ function openModal(type, product) {
                 <label>What's different from the source product? <span class="req">*</span></label>
                 <textarea name="difference" required placeholder="e.g. different size, different supplier, different spec"></textarea>
             </div>
+            ${commercialFields}
             ${commonFields}
             <div class="field">
                 <label>Why doesn't the source code work as-is? <span class="req">*</span></label>
@@ -756,6 +814,15 @@ function openModal(type, product) {
                     <input type="text" name="transport_cost" required>
                 </div>
             </div>
+            <div class="field">
+                <label>Rate structure <span class="req">*</span></label>
+                <select name="rate_structure" required>
+                    <option value="">-- select --</option>
+                    <option value="Weekly">Weekly</option>
+                    <option value="Consumable">Consumable</option>
+                </select>
+            </div>
+            <p style="font-size:12px; color:var(--inactive); margin:-8px 0 14px;">* If the rate is daily or something other than Weekly/Consumable, note it in the comments below.</p>
             ${commonFields}
             <div class="field">
                 <label>Why doesn't anything existing cover this? <span class="req">*</span></label>
@@ -799,12 +866,15 @@ function submitRequest(type, form) {
 
     if (type === "multi") {
         subject = `[STOCK - MULTIPLE] ${currentMultiItems.length} products requested by ${data.requester_name}`;
-        const itemLines = currentMultiItems.map(item =>
-            `- ${item.stock_code} - ${item.stock_name} (${item.active ? "Use as template" : "Reactivate"})`
+        const itemLines = currentMultiItems.map((item, i) =>
+            `- ${item.stock_code} - ${item.stock_name} (${item.active ? "Use as template" : "Reactivate"})\n` +
+            `    Supplier: ${data[`item_supplier_${i}`] || ""} | Cost: ${data[`item_cost_${i}`] || ""} | ` +
+            `Rate structure: ${data[`item_rate_${i}`] || ""} | Transport: ${data[`item_transport_${i}`] || ""}`
         ).join("\n");
-        const otherLines = Object.entries(data).map(([key, value]) => {
+        const sharedKeys = ["requester_name", "requester_email", "site_postcode", "contract_number", "reason"];
+        const otherLines = sharedKeys.map(key => {
             const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-            return `${label}: ${value}`;
+            return `${label}: ${data[key] || ""}`;
         }).join("\n");
         body = `Products requested:\n${itemLines}\n\n${otherLines}`;
     } else {
