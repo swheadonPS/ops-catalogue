@@ -406,6 +406,7 @@ let activeCategory = "all";
 let selectedItems = new Map(); // stock_code -> product object
 let expandedSupplierRefs = new Set(); // stock codes where "+N more" was clicked
 let currentMatches = [];
+let otherSupplierMatches = []; // fuzzy leftovers when an exact supplier code match is found
 let displayCount = 0;
 let lastTotalMatchCount = 0;
 const PAGE_SIZE = 40;
@@ -639,6 +640,22 @@ function runSearch() {
         matches = matches.filter(p => p.category_l1 === activeCategory);
     }
 
+    // In Supplier mode, prefer a literal exact match over Fuse's fuzzy ranking — fuzzy
+    // scoring on structured codes (slashes, dashes) doesn't behave predictably (e.g. a
+    // more specific search string can return MORE fuzzy results than a shorter one), so
+    // an independent exact-match check is more reliable than trusting the score alone.
+    otherSupplierMatches = [];
+    if (searchMode === "supplier") {
+        const termLower = term.toLowerCase();
+        const exactMatches = matches.filter(p =>
+            (p.supplier_ref_codes || []).some(c => c.toLowerCase() === termLower)
+        );
+        if (exactMatches.length > 0) {
+            otherSupplierMatches = matches.filter(p => !exactMatches.includes(p));
+            matches = exactMatches;
+        }
+    }
+
     currentMatches = matches.slice(0, HARD_CAP);
     displayCount = Math.min(PAGE_SIZE, currentMatches.length);
 
@@ -673,7 +690,8 @@ function renderResultsPage(totalMatchCount) {
     const footer = document.getElementById("results-footer");
 
     resultsCount.textContent = `${totalMatchCount} result${totalMatchCount === 1 ? "" : "s"}` +
-        (totalMatchCount > HARD_CAP ? ` (showing first ${HARD_CAP})` : "");
+        (totalMatchCount > HARD_CAP ? ` (showing first ${HARD_CAP})` : "") +
+        (otherSupplierMatches.length > 0 ? ` — exact match found` : "");
 
     resultsWrap.innerHTML = "";
     currentMatches.slice(0, displayCount).forEach(p => resultsWrap.appendChild(renderRow(p)));
@@ -717,6 +735,21 @@ function renderResultsPage(totalMatchCount) {
             renderResultsPage(totalMatchCount);
         });
         footer.appendChild(btn);
+    }
+
+    if (otherSupplierMatches.length > 0) {
+        const revealBtn = document.createElement("button");
+        revealBtn.className = "btn";
+        revealBtn.style.marginTop = footer.childElementCount > 0 ? "8px" : "0";
+        revealBtn.textContent = `Show ${otherSupplierMatches.length} other close match${otherSupplierMatches.length === 1 ? "" : "es"} anyway`;
+        revealBtn.addEventListener("click", () => {
+            currentMatches = [...currentMatches, ...otherSupplierMatches];
+            const revealedCount = otherSupplierMatches.length;
+            otherSupplierMatches = [];
+            displayCount = Math.min(displayCount + PAGE_SIZE, currentMatches.length);
+            renderResultsPage(totalMatchCount + revealedCount);
+        });
+        footer.appendChild(revealBtn);
     }
 }
 
@@ -778,6 +811,7 @@ function renderRow(p) {
 
     const SUPPLIER_REFS_SHOWN = 4;
     let supplierRefsHtml = "";
+    let supplierCountTag = "";
     if (p.supplier_refs && p.supplier_refs.length > 0) {
         const isExpanded = searchMode === "supplier" || expandedSupplierRefs.has(p.stock_code);
         const shown = isExpanded ? p.supplier_refs : p.supplier_refs.slice(0, SUPPLIER_REFS_SHOWN);
@@ -790,10 +824,11 @@ function renderRow(p) {
         const suffix = (!isExpanded && remaining > 0)
             ? ` <a href="#" class="expand-refs" style="color:var(--accent);">+${remaining} more</a>`
             : "";
-        const label = p.supplier_count > 0
-            ? `Supplier refs (${p.supplier_count} current)`
-            : `Supplier refs (historical only, no current supplier)`;
-        supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">${label}: ${pairs.join(", ")}${suffix}</div>`;
+        supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Supplier refs: ${pairs.join(", ")}${suffix}</div>`;
+
+        supplierCountTag = p.supplier_count > 0
+            ? `<span title="Distinct suppliers with an active current price">Suppliers available: ${p.supplier_count}</span>`
+            : `<span title="Has historical supplier references, but none currently active">Suppliers available: 0 (historical only)</span>`;
     }
 
     const HIGH_DEMAND_THRESHOLD = 100;
@@ -811,6 +846,7 @@ function renderRow(p) {
                     <span class="badge ${p.active ? "active" : "inactive"}">${p.active ? "Active" : "Inactive"}</span>
                     <span>${escapeHtml(p.vertical)}</span>
                     ${catPath ? `<span>\u00b7 ${escapeHtml(catPath)}</span>` : ""}
+                    ${supplierCountTag}
                     ${highDemandBadge}
                 </div>
                 ${supplierRefsHtml}
@@ -931,6 +967,10 @@ function openModal(type, product) {
                 <label>Contract number <span class="req">*</span></label>
                 <input type="text" name="contract_number" required>
             </div>
+        </div>
+        <div class="field">
+            <label>Comments</label>
+            <textarea name="comments" placeholder="Optional — anything else worth knowing (e.g. non-standard rate, special instructions)"></textarea>
         </div>
     `;
 
