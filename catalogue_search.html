@@ -342,7 +342,7 @@
         <div class="filter-chip" data-mode="supplier">Supplier stock code</div>
     </div>
     <div id="search-wrap">
-        <input type="text" id="search" placeholder="Search by stock code, name, or category..." autocomplete="off">
+        <input type="text" id="search" placeholder="Search by stock code, name, or category..." autocomplete="off" maxlength="100">
     </div>
 
     <div id="filters">
@@ -414,6 +414,35 @@ let lastTotalMatchCount = 0;
 const PAGE_SIZE = 40;
 const HARD_CAP = 200;
 
+// Collapses different ways of writing the same measurement (3/4in, 3/4 inch, 3/4",
+// 3/4inch) into one canonical form, so fuzzy search compares like-for-like rather than
+// treating "inch" vs """ as a huge character difference. Applied to both the search term
+// and a hidden normalized_name field per product (in Normal mode only — Supplier mode's
+// matching stays literal/untouched, since codes aren't natural-language measurements).
+function normalizeUnits(text) {
+    if (!text) return "";
+    let t = text.toLowerCase();
+    const num = "(\\d+(?:/\\d+)?(?:\\.\\d+)?)";
+    const rules = [
+        [new RegExp(num + '\\s*"', "g"), "$1in"],
+        [new RegExp(num + "\\s*(?:inch(?:es)?|in)\\b", "g"), "$1in"],
+        [new RegExp(num + "\\s*'", "g"), "$1ft"],
+        [new RegExp(num + "\\s*(?:feet|foot|ft)\\b", "g"), "$1ft"],
+        [new RegExp(num + "\\s*(?:millimetres?|millimeters?|mm)\\b", "g"), "$1mm"],
+        [new RegExp(num + "\\s*(?:centimetres?|centimeters?|cm)\\b", "g"), "$1cm"],
+        [new RegExp(num + "\\s*(?:metres?|meters?|m)\\b", "g"), "$1m"],
+        [new RegExp(num + "\\s*(?:kilograms?|kilogrammes?|kgs?)\\b", "g"), "$1kg"],
+        [new RegExp(num + "\\s*(?:litres?|liters?|ltrs?|l)\\b", "g"), "$1ltr"],
+        [new RegExp(num + "\\s*(?:kva)\\b", "g"), "$1kva"],
+        [new RegExp(num + "\\s*(?:bar)\\b", "g"), "$1bar"],
+        [new RegExp(num + "\\s*(?:amps?|a)\\b", "g"), "$1amp"],
+        [new RegExp(num + "\\s*(?:volts?|v)\\b", "g"), "$1v"],
+        [new RegExp(num + "\\s*(?:tonnes?|tons?|t)\\b", "g"), "$1t"]
+    ];
+    rules.forEach(([re, replacement]) => { t = t.replace(re, replacement); });
+    return t.trim();
+}
+
 function parseAliasesCSV(text) {
     const lines = text.trim().split("\n").slice(1); // skip header
     const byCategory = {};
@@ -468,6 +497,11 @@ async function loadData() {
             const codeAliases = aliasLookup.byStockCode[(obj.stock_code || "").toLowerCase()] || [];
             obj.search_aliases = [...dbAliases, ...catAliases, ...cat2Aliases, ...codeAliases].join(" ");
 
+            // Canonical form of the stock name for unit-consistent matching — see
+            // normalizeUnits() above. Kept separate from stock_name so the visible
+            // highlighting still shows the real, original text.
+            obj.normalized_name = normalizeUnits(obj.stock_name || "");
+
             // supplier_refs is a list of {code, supplier} pairs. Kept as separate flat arrays
             // for Fuse so each code/name is matched (and highlighted) independently, rather
             // than fuzzy-matching one long joined string — that was producing false-positive
@@ -485,6 +519,7 @@ async function loadData() {
             keys: [
                 { name: "stock_code", weight: 0.3 },
                 { name: "stock_name", weight: 0.3 },
+                { name: "normalized_name", weight: 0.2 },
                 { name: "category_l1", weight: 0.1 },
                 { name: "category_l2", weight: 0.1 },
                 { name: "vertical", weight: 0.05 },
@@ -596,7 +631,7 @@ function updateCategoryOptions(matchesBeforeCategoryFilter) {
 function runSearch() {
     if (!fuse || !fuseSupplier) return;
     const activeFuse = searchMode === "supplier" ? fuseSupplier : fuse;
-    const term = document.getElementById("search").value.trim();
+    const term = document.getElementById("search").value.trim().slice(0, 100);
     const startHint = document.getElementById("start-hint");
     const emptyState = document.getElementById("empty-state");
     const resultsCount = document.getElementById("results-count");
@@ -622,7 +657,11 @@ function runSearch() {
     startHint.style.display = "none";
     cta.classList.add("show");
 
-    let rawMatches = activeFuse.search(term);
+    // Only normalize units in Normal mode — Supplier mode's matching (including the
+    // exact-match short-circuit below) needs to stay literal, since supplier codes are
+    // identifiers, not natural-language measurements.
+    const searchTerm = searchMode === "supplier" ? term : normalizeUnits(term);
+    let rawMatches = activeFuse.search(searchTerm);
 
     let matches = rawMatches.map(r => {
         const item = { ...r.item, _matches: r.matches };
