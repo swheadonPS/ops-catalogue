@@ -411,6 +411,7 @@ let activeCategory = "all";
 let selectedItems = new Map(); // stock_code -> product object
 let expandedSupplierRefs = new Set(); // stock codes where "+N more" was clicked
 let expandedSupplierCount = new Set(); // stock codes where "Suppliers available: N" was clicked
+let dismissedDuplicateCodes = new Set(); // stock codes already shown+dismissed in this New request's flow
 let currentMatches = [];
 let otherSupplierMatches = []; // fuzzy leftovers when an exact supplier code match is found
 let displayCount = 0;
@@ -1026,7 +1027,6 @@ function openModal(type, product) {
 
     form.innerHTML = "";
     form.dataset.type = type;
-    delete form.dataset.dupeChecked;
 
     const commonFields = `
         <div class="field-row">
@@ -1253,14 +1253,19 @@ document.getElementById("overlay").addEventListener("click", (e) => {
     if (e.target.id === "overlay") closeModal();
 });
 
-function showDuplicateInterstitial(term, matches, onContinue) {
+function showDuplicateInterstitial(term, matches, onContinue, isFollowUp) {
     const overlay = document.getElementById("overlay");
     const title = document.getElementById("modal-title");
     const sub = document.getElementById("modal-sub");
     const form = document.getElementById("modal-form");
 
-    title.textContent = "Before you continue...";
-    sub.textContent = `Here's what we found close to "${term}" — worth a check before creating something new.`;
+    if (isFollowUp) {
+        title.textContent = "Hold on — we found something new";
+        sub.textContent = `Based on exactly what you typed, this also looks close — worth a check before we send.`;
+    } else {
+        title.textContent = "Before you continue...";
+        sub.textContent = `Here's what we found close to "${term}" — worth a check before creating something new.`;
+    }
 
     const itemsHtml = matches.map(item => `
         <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); gap:10px;">
@@ -1279,7 +1284,7 @@ function showDuplicateInterstitial(term, matches, onContinue) {
         <div style="max-height:280px; overflow-y:auto; margin-bottom:16px;">${itemsHtml}</div>
         <div class="modal-actions" style="justify-content:space-between;">
             <button type="button" class="btn" onclick="closeModal()">Cancel</button>
-            <button type="button" class="btn primary" id="btn-continue-new">None of these fit — continue</button>
+            <button type="button" class="btn primary" id="btn-continue-new">${isFollowUp ? "None of these fit either — send my request" : "None of these fit — continue"}</button>
         </div>
     `;
     form.onsubmit = (e) => e.preventDefault();
@@ -1298,6 +1303,7 @@ function showDuplicateInterstitial(term, matches, onContinue) {
 }
 
 function showDuplicateCheck() {
+    dismissedDuplicateCodes = new Set(); // fresh start for this New-request flow
     const term = document.getElementById("search").value.trim();
     if (!term || !fuse) {
         openModal("new", {});
@@ -1308,7 +1314,12 @@ function showDuplicateCheck() {
         openModal("new", {});
         return;
     }
-    showDuplicateInterstitial(term, topMatches, () => openModal("new", {}));
+    showDuplicateInterstitial(term, topMatches, () => {
+        // Remember these so the submit-time check doesn't interrupt again for the
+        // same products the person already reviewed and dismissed here.
+        topMatches.forEach(m => dismissedDuplicateCodes.add(m.stock_code));
+        openModal("new", {});
+    });
 }
 
 document.getElementById("btn-brand-new").addEventListener("click", showDuplicateCheck);
@@ -1326,14 +1337,35 @@ function submitRequest(type, form) {
     // original fields (and whatever was typed into them) no longer exist in the DOM.
     // `data` is captured once, above, before that happens, and passed straight through
     // to finalizeSubmit() rather than ever being re-read from the form afterwards.
-    if (type === "new" && !form.dataset.dupeChecked && data.new_description && fuse) {
-        const dupMatches = fuse.search(normalizeUnits(data.new_description)).slice(0, 5).map(r => r.item);
-        if (dupMatches.length > 0) {
-            showDuplicateInterstitial(data.new_description, dupMatches, () => {
-                finalizeSubmit(type, data);
-            });
-            return;
+    if (type === "new" && data.new_description && fuse) {
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalBtnText = submitBtn ? submitBtn.textContent : "";
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Checking...";
         }
+
+        // Brief pause is purely so "Checking..." is perceptible — the actual check itself
+        // is instant. Only interrupts again if something NEW turns up that wasn't already
+        // shown+dismissed in the first "Before you continue" screen — otherwise this is
+        // invisible and the email just opens, so the same-looking prompt never appears twice.
+        setTimeout(() => {
+            const dupMatches = fuse.search(normalizeUnits(data.new_description)).slice(0, 5).map(r => r.item);
+            const newMatches = dupMatches.filter(m => !dismissedDuplicateCodes.has(m.stock_code));
+
+            if (newMatches.length > 0) {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalBtnText;
+                }
+                showDuplicateInterstitial(data.new_description, newMatches, () => {
+                    finalizeSubmit(type, data);
+                }, true);
+            } else {
+                finalizeSubmit(type, data);
+            }
+        }, 400);
+        return;
     }
 
     finalizeSubmit(type, data);
