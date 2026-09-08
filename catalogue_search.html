@@ -193,6 +193,9 @@
         display: flex;
         gap: 8px;
         flex-shrink: 0;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        max-width: 220px;
     }
     .btn {
         padding: 8px 14px;
@@ -939,6 +942,14 @@ function renderRow(p) {
         actions.appendChild(btn);
     }
 
+    const supplierBtn = document.createElement("button");
+    supplierBtn.className = "btn";
+    supplierBtn.style.fontSize = "12.5px";
+    supplierBtn.textContent = "Add supplier";
+    supplierBtn.title = "Get this priced up with a different supplier";
+    supplierBtn.addEventListener("click", () => openModal("supplier", p));
+    actions.appendChild(supplierBtn);
+
     return row;
 }
 
@@ -1099,6 +1110,24 @@ function openModal(type, product) {
         title.textContent = "Reactivate a stock code";
         sub.textContent = "This code already exists — we'll just bring it back to active status.";
         form.innerHTML = `
+            <input type="hidden" name="vertical" value="${escapeAttr(product.vertical)}">
+            <div class="field">
+                <label>Stock code</label>
+                <input type="text" name="stock_code" value="${escapeAttr(product.stock_code)}" readonly>
+            </div>
+            <div class="field">
+                <label>Stock name</label>
+                <input type="text" name="stock_name" value="${escapeAttr(product.stock_name)}" readonly>
+            </div>
+            ${commercialFields}
+            ${commonFields}
+            ${submitRow()}
+        `;
+    } else if (type === "supplier") {
+        title.textContent = "Add a supplier to this product";
+        sub.textContent = "The product's right — it just needs pricing up with a different supplier.";
+        form.innerHTML = `
+            <input type="hidden" name="vertical" value="${escapeAttr(product.vertical)}">
             <div class="field">
                 <label>Stock code</label>
                 <input type="text" name="stock_code" value="${escapeAttr(product.stock_code)}" readonly>
@@ -1115,6 +1144,7 @@ function openModal(type, product) {
         title.textContent = "Request a new code based on an existing one";
         sub.textContent = "We'll set this up using the product below as a starting template.";
         form.innerHTML = `
+            <input type="hidden" name="vertical" value="${escapeAttr(product.vertical)}">
             <div class="field">
                 <label>Source stock code</label>
                 <input type="text" name="source_stock_code" value="${escapeAttr(product.stock_code)}" readonly>
@@ -1286,7 +1316,7 @@ function finalizeSubmit(type, data) {
     if (type === "multi") {
         subject = `[STOCK - MULTIPLE] ${currentMultiItems.length} products requested by ${data.requester_name}`;
         const itemLines = currentMultiItems.map((item, i) =>
-            `- ${item.stock_code} - ${item.stock_name} (${item.active ? "Use as template" : "Reactivate"})\n` +
+            `- ${item.stock_code} - ${item.stock_name} [${item.vertical}] (${item.active ? "Use as template" : "Reactivate"})\n` +
             `    Supplier: ${data[`item_supplier_${i}`] || ""} | Supplier code: ${data[`item_supplier_code_${i}`] || ""} | Cost: ${data[`item_cost_${i}`] || ""} | ` +
             `Rate structure: ${data[`item_rate_${i}`] || ""} | Transport: ${data[`item_transport_${i}`] || ""}`
         ).join("\n");
@@ -1299,6 +1329,7 @@ function finalizeSubmit(type, data) {
     } else {
         const prefixMap = {
             reactivate: `[STOCK - REACTIVATE] ${data.stock_code} - ${data.stock_name}`,
+            supplier: `[STOCK - ADD SUPPLIER] ${data.stock_code} - ${data.stock_name}`,
             clone: `[STOCK - CLONE] from ${data.source_stock_code} - ${data.new_description}`,
             new: `[STOCK - NEW] ${data.new_description}`
         };
