@@ -410,6 +410,7 @@ let activeStatus = "all";
 let activeCategory = "all";
 let selectedItems = new Map(); // stock_code -> product object
 let expandedSupplierRefs = new Set(); // stock codes where "+N more" was clicked
+let expandedSupplierCount = new Set(); // stock codes where "Suppliers available: N" was clicked
 let currentMatches = [];
 let otherSupplierMatches = []; // fuzzy leftovers when an exact supplier code match is found
 let displayCount = 0;
@@ -485,7 +486,7 @@ async function loadData() {
             throw new Error(`Data file returned ${res.status} — check catalogue_search_data.json exists in this folder`);
         }
         const data = await res.json();
-        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs", "supplier_count", "won_contracts_12mo"];
+        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs", "supplier_count", "current_suppliers", "won_contracts_12mo"];
         const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
 
         allProducts = (data.products || []).map(row => {
@@ -877,9 +878,18 @@ function renderRow(p) {
     // on file. A product can have known current suppliers with zero reference codes
     // (e.g. this exact case: real current pricing, but nobody's entered a supplier's own
     // stock code for it) — that's still genuinely "N suppliers available", not "unknown".
+    // current_suppliers is the actual list of names — supplier_count is just its length,
+    // so the tag and its expanded list can never disagree with each other.
     let supplierCountTag = "";
+    let currentSuppliersHtml = "";
     if (p.supplier_count > 0) {
-        supplierCountTag = `<span title="Distinct suppliers with an active current price">Suppliers available: ${p.supplier_count}</span>`;
+        const countExpanded = expandedSupplierCount.has(p.stock_code);
+        supplierCountTag = countExpanded
+            ? `<span title="Distinct suppliers with an active current price">Suppliers available: ${p.supplier_count}</span>`
+            : `<a href="#" class="expand-supplier-count" title="Click to see who" style="color:var(--accent);">Suppliers available: ${p.supplier_count}</a>`;
+        if (countExpanded && p.current_suppliers && p.current_suppliers.length > 0) {
+            currentSuppliersHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Current suppliers: ${p.current_suppliers.map(escapeHtml).join(", ")}</div>`;
+        }
     } else if (p.supplier_refs && p.supplier_refs.length > 0) {
         supplierCountTag = `<span title="Has historical supplier references, but none currently active">Suppliers available: 0 (historical only)</span>`;
     }
@@ -902,11 +912,21 @@ function renderRow(p) {
                     ${supplierCountTag}
                     ${highDemandBadge}
                 </div>
+                ${currentSuppliersHtml}
                 ${supplierRefsHtml}
             </div>
         </div>
         <div class="result-actions"></div>
     `;
+
+    const expandCountLink = row.querySelector(".expand-supplier-count");
+    if (expandCountLink) {
+        expandCountLink.addEventListener("click", (e) => {
+            e.preventDefault();
+            expandedSupplierCount.add(p.stock_code);
+            renderResultsPage(currentDisplayedTotal);
+        });
+    }
 
     const expandLink = row.querySelector(".expand-refs");
     if (expandLink) {
