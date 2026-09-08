@@ -1261,17 +1261,26 @@ function submitRequest(type, form) {
     // looked at whatever was in the search box when the button was clicked, which could
     // be empty, unrelated, or just a bad search. This re-checks the real description
     // that's about to be submitted, so a dodgy initial search can't slip a duplicate through.
+    //
+    // IMPORTANT: showDuplicateInterstitial() replaces the modal form's own HTML to show
+    // its "here's what we found" screen — so by the time "continue" is clicked, the
+    // original fields (and whatever was typed into them) no longer exist in the DOM.
+    // `data` is captured once, above, before that happens, and passed straight through
+    // to finalizeSubmit() rather than ever being re-read from the form afterwards.
     if (type === "new" && !form.dataset.dupeChecked && data.new_description && fuse) {
         const dupMatches = fuse.search(data.new_description).slice(0, 5).map(r => r.item);
         if (dupMatches.length > 0) {
             showDuplicateInterstitial(data.new_description, dupMatches, () => {
-                form.dataset.dupeChecked = "true";
-                submitRequest(type, form);
+                finalizeSubmit(type, data);
             });
             return;
         }
     }
 
+    finalizeSubmit(type, data);
+}
+
+function finalizeSubmit(type, data) {
     let subject, body;
 
     if (type === "multi") {
