@@ -414,6 +414,7 @@ let currentMatches = [];
 let otherSupplierMatches = []; // fuzzy leftovers when an exact supplier code match is found
 let displayCount = 0;
 let lastTotalMatchCount = 0;
+let currentDisplayedTotal = 0; // kept in sync with whatever renderResultsPage last actually showed
 const PAGE_SIZE = 40;
 const HARD_CAP = 200;
 
@@ -728,6 +729,7 @@ function runSearch() {
 }
 
 function renderResultsPage(totalMatchCount) {
+    currentDisplayedTotal = totalMatchCount;
     const resultsCount = document.getElementById("results-count");
     const resultsWrap = document.getElementById("results");
     const resultsTools = document.getElementById("results-tools");
@@ -855,7 +857,6 @@ function renderRow(p) {
 
     const SUPPLIER_REFS_SHOWN = 4;
     let supplierRefsHtml = "";
-    let supplierCountTag = "";
     if (p.supplier_refs && p.supplier_refs.length > 0) {
         const isExpanded = searchMode === "supplier" || expandedSupplierRefs.has(p.stock_code);
         const shown = isExpanded ? p.supplier_refs : p.supplier_refs.slice(0, SUPPLIER_REFS_SHOWN);
@@ -869,10 +870,18 @@ function renderRow(p) {
             ? ` <a href="#" class="expand-refs" style="color:var(--accent);">+${remaining} more</a>`
             : "";
         supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Supplier refs: ${pairs.join(", ")}${suffix}</div>`;
+    }
 
-        supplierCountTag = p.supplier_count > 0
-            ? `<span title="Distinct suppliers with an active current price">Suppliers available: ${p.supplier_count}</span>`
-            : `<span title="Has historical supplier references, but none currently active">Suppliers available: 0 (historical only)</span>`;
+    // Deliberately independent of supplier_refs above — supplier_count comes from a
+    // separate query with no requirement that a supplier has an external reference code
+    // on file. A product can have known current suppliers with zero reference codes
+    // (e.g. this exact case: real current pricing, but nobody's entered a supplier's own
+    // stock code for it) — that's still genuinely "N suppliers available", not "unknown".
+    let supplierCountTag = "";
+    if (p.supplier_count > 0) {
+        supplierCountTag = `<span title="Distinct suppliers with an active current price">Suppliers available: ${p.supplier_count}</span>`;
+    } else if (p.supplier_refs && p.supplier_refs.length > 0) {
+        supplierCountTag = `<span title="Has historical supplier references, but none currently active">Suppliers available: 0 (historical only)</span>`;
     }
 
     const HIGH_DEMAND_THRESHOLD = 100;
@@ -904,7 +913,7 @@ function renderRow(p) {
         expandLink.addEventListener("click", (e) => {
             e.preventDefault();
             expandedSupplierRefs.add(p.stock_code);
-            renderResultsPage(lastTotalMatchCount);
+            renderResultsPage(currentDisplayedTotal);
         });
     }
 
@@ -1274,7 +1283,7 @@ function showDuplicateCheck() {
         openModal("new", {});
         return;
     }
-    const topMatches = fuse.search(term).slice(0, 5).map(r => r.item);
+    const topMatches = fuse.search(normalizeUnits(term)).slice(0, 5).map(r => r.item);
     if (topMatches.length === 0) {
         openModal("new", {});
         return;
@@ -1298,7 +1307,7 @@ function submitRequest(type, form) {
     // `data` is captured once, above, before that happens, and passed straight through
     // to finalizeSubmit() rather than ever being re-read from the form afterwards.
     if (type === "new" && !form.dataset.dupeChecked && data.new_description && fuse) {
-        const dupMatches = fuse.search(data.new_description).slice(0, 5).map(r => r.item);
+        const dupMatches = fuse.search(normalizeUnits(data.new_description)).slice(0, 5).map(r => r.item);
         if (dupMatches.length > 0) {
             showDuplicateInterstitial(data.new_description, dupMatches, () => {
                 finalizeSubmit(type, data);
