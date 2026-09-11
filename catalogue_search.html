@@ -487,12 +487,21 @@ async function loadData() {
             throw new Error(`Data file returned ${res.status} — check catalogue_search_data.json exists in this folder`);
         }
         const data = await res.json();
-        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs", "supplier_count", "current_suppliers", "won_contracts_12mo"];
+        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs", "supplier_count", "supplier_count_capped", "current_suppliers", "won_contracts_12mo"];
+        const lookups = data.lookups || {}; // vertical/category_l1/category_l2 are indices into these, to cut repeated-string bloat
         const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
 
         allProducts = (data.products || []).map(row => {
             const obj = {};
             cols.forEach((col, i) => { obj[col] = row[i]; });
+
+            // Decode lookup indices back into real strings FIRST — everything below this
+            // (alias matching, category filters, display) expects actual strings and has
+            // no idea these were ever indices. Must happen before the alias lookup just
+            // below, which calls .toLowerCase() on category_l1/category_l2.
+            ["vertical", "category_l1", "category_l2"].forEach(col => {
+                if (lookups[col]) obj[col] = lookups[col][obj[col]];
+            });
 
             // Real, curated aliases (e.g. "Spider Boom") come straight from the export's
             // own "aliases" column. The manual CSV is just a supplementary layer on top,
@@ -513,8 +522,8 @@ async function loadData() {
             // than fuzzy-matching one long joined string — that was producing false-positive
             // matches on stray single digits across the whole blob.
             obj.supplier_refs = obj.supplier_refs || [];
-            obj.supplier_ref_codes = obj.supplier_refs.map(r => r.code || "");
-            obj.supplier_ref_names = obj.supplier_refs.map(r => r.supplier || "");
+            obj.supplier_ref_codes = obj.supplier_refs.map(r => r[0] || "");
+            obj.supplier_ref_names = obj.supplier_refs.map(r => r[1] || "");
 
             return obj;
         });
@@ -863,8 +872,8 @@ function renderRow(p) {
         const isExpanded = searchMode === "supplier" || expandedSupplierRefs.has(p.stock_code);
         const shown = isExpanded ? p.supplier_refs : p.supplier_refs.slice(0, SUPPLIER_REFS_SHOWN);
         const pairs = shown.map((ref, idx) => {
-            const codeH = highlightArrayItem(ref.code, p._matches, "supplier_ref_codes", idx);
-            const nameH = highlightArrayItem(ref.supplier, p._matches, "supplier_ref_names", idx);
+            const codeH = highlightArrayItem(ref[0], p._matches, "supplier_ref_codes", idx);
+            const nameH = highlightArrayItem(ref[1], p._matches, "supplier_ref_names", idx);
             return `${codeH} (${nameH})`;
         });
         const remaining = p.supplier_refs.length - SUPPLIER_REFS_SHOWN;
@@ -879,24 +888,29 @@ function renderRow(p) {
     // on file. A product can have known current suppliers with zero reference codes
     // (e.g. this exact case: real current pricing, but nobody's entered a supplier's own
     // stock code for it) — that's still genuinely "N suppliers available", not "unknown".
-    // current_suppliers is the actual list of names — supplier_count is just its length,
-    // so the tag and its expanded list can never disagree with each other.
+    // current_suppliers is the actual list — supplier_count is capped to match its length
+    // exactly (never bigger), so the tag and its expanded list can never disagree. When the
+    // true count exceeds what's listed (capped server-side at 20), supplier_count_capped
+    // shows "20+" instead of a bare number — honest about there being more, never silently
+    // wrong the way an uncapped count next to a capped list would be.
     let supplierCountTag = "";
     let currentSuppliersHtml = "";
     if (p.supplier_count > 0) {
         const countExpanded = expandedSupplierCount.has(p.stock_code);
+        const countLabel = p.supplier_count_capped ? `${p.supplier_count}+` : `${p.supplier_count}`;
         supplierCountTag = countExpanded
-            ? `<span title="Distinct suppliers with an active current price">Suppliers available: ${p.supplier_count}</span>`
-            : `<a href="#" class="expand-supplier-count" title="Click to see who" style="color:var(--accent);">Suppliers available: ${p.supplier_count}</a>`;
+            ? `<span title="Distinct suppliers with an active current price">Suppliers available: ${countLabel}</span>`
+            : `<a href="#" class="expand-supplier-count" title="Click to see who" style="color:var(--accent);">Suppliers available: ${countLabel}</a>`;
         if (countExpanded && p.current_suppliers && p.current_suppliers.length > 0) {
             const showDates = p.vertical === "Equipment Sales";
-            const entries = p.current_suppliers.map(s => {
-                if (!showDates || !s.updated_at) return escapeHtml(s.name);
-                const d = new Date(s.updated_at);
+            const entries = p.current_suppliers.map(([name, updatedAt]) => {
+                if (!showDates || !updatedAt) return escapeHtml(name);
+                const d = new Date(updatedAt);
                 const dateStr = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-                return `${escapeHtml(s.name)} (price updated ${dateStr})`;
+                return `${escapeHtml(name)} (price updated ${dateStr})`;
             });
-            currentSuppliersHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Current suppliers: ${entries.join(", ")}</div>`;
+            const cappedNote = p.supplier_count_capped ? ` (showing 20 most recently active)` : "";
+            currentSuppliersHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Current suppliers: ${entries.join(", ")}${cappedNote}</div>`;
         }
     } else if (p.supplier_refs && p.supplier_refs.length > 0) {
         supplierCountTag = `<span title="Has historical supplier references, but none currently active">Suppliers available: 0 (historical only)</span>`;
