@@ -866,22 +866,29 @@ function renderRow(p) {
     const nameHtml = highlightMatch(p.stock_name, p._matches, "stock_name");
     const codeHtml = highlightMatch(p.stock_code, p._matches, "stock_code");
 
+    // Build a code lookup from supplier_refs (code, name pairs) so it can be folded into
+    // the current-suppliers line below — display-only merge, the underlying arrays stay
+    // separate (a genuine data merge would save ~1.2MB of duplicated supplier-name bytes,
+    // but we have 4.5MB+ of headroom under the 25MB limit, so not worth the complexity/
+    // regression-risk right now — see conversation 2026-09-11). Revisit if size pressure
+    // returns.
+    const codeByName = {};
+    (p.supplier_refs || []).forEach(([code, name]) => {
+        if (!codeByName[name]) codeByName[name] = code;
+    });
+    const mergedNames = new Set();
+
+    function formatMonthYear(isoMonth) {
+        // isoMonth is "YYYY-MM" (date-only precision, trimmed server-side) — parsed
+        // directly rather than via Date() to avoid timezone edge cases, and formatted
+        // as "Jun-26" rather than a full date, since day-of-month was never real data.
+        const [yr, mo] = isoMonth.split("-");
+        const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        return `${monthNames[parseInt(mo, 10) - 1]}-${yr.slice(2)}`;
+    }
+
     const SUPPLIER_REFS_SHOWN = 4;
     let supplierRefsHtml = "";
-    if (p.supplier_refs && p.supplier_refs.length > 0) {
-        const isExpanded = searchMode === "supplier" || expandedSupplierRefs.has(p.stock_code);
-        const shown = isExpanded ? p.supplier_refs : p.supplier_refs.slice(0, SUPPLIER_REFS_SHOWN);
-        const pairs = shown.map((ref, idx) => {
-            const codeH = highlightArrayItem(ref[0], p._matches, "supplier_ref_codes", idx);
-            const nameH = highlightArrayItem(ref[1], p._matches, "supplier_ref_names", idx);
-            return `${codeH} (${nameH})`;
-        });
-        const remaining = p.supplier_refs.length - SUPPLIER_REFS_SHOWN;
-        const suffix = (!isExpanded && remaining > 0)
-            ? ` <a href="#" class="expand-refs" style="color:var(--accent);">+${remaining} more</a>`
-            : "";
-        supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Supplier refs: ${pairs.join(", ")}${suffix}</div>`;
-    }
 
     // Deliberately independent of supplier_refs above — supplier_count comes from a
     // separate query with no requirement that a supplier has an external reference code
@@ -904,16 +911,40 @@ function renderRow(p) {
         if (countExpanded && p.current_suppliers && p.current_suppliers.length > 0) {
             const showDates = p.vertical === "Equipment Sales";
             const entries = p.current_suppliers.map(([name, updatedAt]) => {
-                if (!showDates || !updatedAt) return escapeHtml(name);
-                const d = new Date(updatedAt);
-                const dateStr = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-                return `${escapeHtml(name)} (price updated ${dateStr})`;
+                mergedNames.add(name);
+                const code = codeByName[name];
+                const parts = [escapeHtml(name)];
+                if (code) parts.push(escapeHtml(code));
+                let entry = parts.join(", ");
+                if (showDates && updatedAt) entry += ` (updated ${formatMonthYear(updatedAt)})`;
+                return entry;
             });
             const cappedNote = p.supplier_count_capped ? ` (showing 20 most recently active)` : "";
             currentSuppliersHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Current suppliers: ${entries.join(", ")}${cappedNote}</div>`;
         }
     } else if (p.supplier_refs && p.supplier_refs.length > 0) {
         supplierCountTag = `<span title="Has historical supplier references, but none currently active">Suppliers available: 0 (historical only)</span>`;
+    }
+
+    // Historical-only refs — suppliers already folded into the merged line above (via
+    // mergedNames) are excluded here, so the same supplier never appears twice across two
+    // lines. Only genuinely historical (no longer current) refs show up in this line.
+    if (p.supplier_refs && p.supplier_refs.length > 0) {
+        const historicalOnly = p.supplier_refs.filter(([, name]) => !mergedNames.has(name));
+        if (historicalOnly.length > 0) {
+            const isExpanded = searchMode === "supplier" || expandedSupplierRefs.has(p.stock_code);
+            const shown = isExpanded ? historicalOnly : historicalOnly.slice(0, SUPPLIER_REFS_SHOWN);
+            const pairs = shown.map((ref, idx) => {
+                const codeH = highlightArrayItem(ref[0], p._matches, "supplier_ref_codes", idx);
+                const nameH = highlightArrayItem(ref[1], p._matches, "supplier_ref_names", idx);
+                return `${codeH} (${nameH})`;
+            });
+            const remaining = historicalOnly.length - SUPPLIER_REFS_SHOWN;
+            const suffix = (!isExpanded && remaining > 0)
+                ? ` <a href="#" class="expand-refs" style="color:var(--accent);">+${remaining} more</a>`
+                : "";
+            supplierRefsHtml = `<div style="font-size:11px; color:var(--subtext); margin-top:3px;">Historical supplier refs: ${pairs.join(", ")}${suffix}</div>`;
+        }
     }
 
     const HIGH_DEMAND_THRESHOLD = 100;
