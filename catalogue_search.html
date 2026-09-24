@@ -400,6 +400,7 @@
 const RECIPIENT = "onecallreports@hss.com";
 const DATA_URL = "catalogue_search_data.json";
 const ALIASES_URL = "search_aliases.csv";
+const CATEGORY_MAP_URL = "valid_category_subcategory.csv";
 
 let allProducts = [];
 let fuse = null;
@@ -477,6 +478,93 @@ async function loadAliases() {
     }
 }
 
+// Valid category -> [sub_categories] mapping from Project Argos' cleanse work (currently
+// mainly Hire/Bulk). Drives the cascading dropdowns on the New and Clone request forms,
+// replacing free-text category entry with the actual standardised taxonomy.
+let categoryMap = {}; // { "ACCESS": ["ACCESS SAFETY", "LADDERS & STEPS", ...], ... }
+
+function parseCategoryMapCSV(text) {
+    const lines = text.trim().split("\n").slice(1); // skip header
+    const map = {};
+    lines.forEach(line => {
+        const [category, subCategory] = line.split(",").map(s => (s || "").trim());
+        if (!category || !subCategory) return;
+        if (!map[category]) map[category] = [];
+        map[category].push(subCategory);
+    });
+    Object.keys(map).forEach(cat => map[cat].sort());
+    return map;
+}
+
+async function loadCategoryMap() {
+    try {
+        const res = await fetch(CATEGORY_MAP_URL, { cache: "no-store" });
+        if (!res.ok) return {};
+        const text = await res.text();
+        return parseCategoryMapCSV(text);
+    } catch (err) {
+        console.warn("No category mapping file found or failed to load — Category/Sub-category will fall back to free text.", err);
+        return {};
+    }
+}
+
+// Builds the HTML for the cascading Category / Sub-category dropdown pair, optionally
+// pre-selected (used on Clone to default to the source product's own category, still
+// editable in case the new one genuinely belongs somewhere else).
+function categoryDropdownsHtml(selectedCategory, selectedSubCategory) {
+    const categories = Object.keys(categoryMap).sort();
+    if (categories.length === 0) {
+        // Fallback if the mapping file didn't load — plain text inputs, same as before.
+        return `
+            <div class="field-row">
+                <div class="field">
+                    <label>Category <span class="req">*</span></label>
+                    <input type="text" name="category" required value="${escapeAttr(selectedCategory || "")}">
+                </div>
+                <div class="field">
+                    <label>Sub-category <span class="req">*</span></label>
+                    <input type="text" name="sub_category" required value="${escapeAttr(selectedSubCategory || "")}">
+                </div>
+            </div>
+        `;
+    }
+    const catValid = selectedCategory && categoryMap[selectedCategory];
+    const subOptions = catValid ? categoryMap[selectedCategory] : [];
+    return `
+        <div class="field-row">
+            <div class="field">
+                <label>Category <span class="req">*</span></label>
+                <select name="category" class="category-select" required>
+                    <option value="">-- select --</option>
+                    ${categories.map(c => `<option value="${escapeAttr(c)}" ${catValid && c === selectedCategory ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+                </select>
+            </div>
+            <div class="field">
+                <label>Sub-category <span class="req">*</span></label>
+                <select name="sub_category" class="subcategory-select" required ${catValid ? "" : "disabled"}>
+                    <option value="">${catValid ? "-- select --" : "-- pick a category first --"}</option>
+                    ${subOptions.map(sc => `<option value="${escapeAttr(sc)}" ${sc === selectedSubCategory ? "selected" : ""}>${escapeHtml(sc)}</option>`).join("")}
+                </select>
+            </div>
+        </div>
+    `;
+}
+
+// Wires up a category select so choosing a category repopulates its paired sub-category
+// select with only the valid options for it. Call this once, right after inserting HTML
+// built by categoryDropdownsHtml() into the form.
+function wireCategoryDropdown(form) {
+    const catSelect = form.querySelector(".category-select");
+    const subSelect = form.querySelector(".subcategory-select");
+    if (!catSelect || !subSelect) return;
+    catSelect.addEventListener("change", () => {
+        const subs = categoryMap[catSelect.value] || [];
+        subSelect.disabled = subs.length === 0;
+        subSelect.innerHTML = `<option value="">${subs.length ? "-- select --" : "-- pick a category first --"}</option>` +
+            subs.map(sc => `<option value="${escapeAttr(sc)}">${escapeHtml(sc)}</option>`).join("");
+    });
+}
+
 async function loadData() {
     document.getElementById("search").disabled = true;
     document.getElementById("start-hint").textContent = "Loading catalogue...";
@@ -489,6 +577,7 @@ async function loadData() {
         const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs", "supplier_count", "supplier_count_capped", "current_suppliers", "won_contracts_12mo"];
         const lookups = data.lookups || {}; // vertical/category_l1/category_l2 are indices into these, to cut repeated-string bloat
         const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
+        categoryMap = await loadCategoryMap(); // for the New/Clone form dropdowns
 
         allProducts = (data.products || []).map(row => {
             const obj = {};
@@ -1197,6 +1286,8 @@ function openModal(type, product) {
                 <label>Source stock name</label>
                 <input type="text" name="source_stock_name" value="${escapeAttr(product.stock_name)}" readonly>
             </div>
+            ${categoryDropdownsHtml(product.category_l1, product.category_l2)}
+            <p style="font-size:12px; color:var(--subtext); margin:-8px 0 14px;">Defaulted to the source product's own category — change it if the new one belongs somewhere else.</p>
             <div class="field">
                 <label>New product description <span class="req">*</span></label>
                 <input type="text" name="new_description" required placeholder="What should the new code be called?">
@@ -1213,16 +1304,11 @@ function openModal(type, product) {
                 <label>Proposed product description <span class="req">*</span></label>
                 <input type="text" name="new_description" required>
             </div>
-            <div class="field-row">
-                <div class="field">
-                    <label>Vertical <span class="req">*</span></label>
-                    <input type="text" name="vertical" required>
-                </div>
-                <div class="field">
-                    <label>Category (best guess) <span class="req">*</span></label>
-                    <input type="text" name="category" required>
-                </div>
+            <div class="field">
+                <label>Vertical <span class="req">*</span></label>
+                <input type="text" name="vertical" required>
             </div>
+            ${categoryDropdownsHtml()}
             <div class="field-row">
                 <div class="field">
                     <label>Bulk load <span class="req">*</span></label>
@@ -1244,6 +1330,7 @@ function openModal(type, product) {
     }
 
     overlay.classList.add("show");
+    wireCategoryDropdown(form);
     form.onsubmit = (e) => { e.preventDefault(); submitRequest(type, form); };
 }
 
