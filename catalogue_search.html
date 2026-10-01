@@ -255,6 +255,40 @@
         z-index: 100;
     }
     .overlay.show { display: flex; }
+    #help-btn {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        font-size: 20px;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        z-index: 90;
+    }
+    #help-btn:hover { background: var(--accent-dim); }
+    .help-step {
+        margin-bottom: 18px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--border);
+    }
+    .help-step:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .help-step h3 {
+        margin: 0 0 6px;
+        font-size: 14.5px;
+        color: var(--accent);
+    }
+    .help-step p {
+        margin: 0;
+        font-size: 13.5px;
+        color: var(--subtext);
+        line-height: 1.5;
+    }
     .modal {
         background: var(--panel);
         border: 1px solid var(--border);
@@ -396,6 +430,47 @@
 
 <div id="toast"></div>
 
+<button id="help-btn" title="How to use this page">?</button>
+
+<div class="overlay" id="help-overlay">
+    <div class="modal" style="max-width:600px;">
+        <h2 style="margin:0 0 4px;">How to use this page</h2>
+        <p class="modal-sub">A quick walkthrough — click outside this box, or the X below, to close.</p>
+        <div style="max-height:60vh; overflow-y:auto; margin:16px 0;">
+            <div class="help-step">
+                <h3>1. Search first</h3>
+                <p>Type a stock code, product name, or category into the box at the top. Results update as you type — it's a fuzzy search, so small typos are fine. Use the filter chips (vertical, active/inactive, category) underneath to narrow things down.</p>
+            </div>
+            <div class="help-step">
+                <h3>2. Found it? Use the button on that row</h3>
+                <p>Every result has buttons on the right:</p>
+                <p>&bull; <strong>Reactivate this code</strong> — the item already exists but is switched off. This brings it back.</p>
+                <p>&bull; <strong>Use as template</strong> — found something close but not exact? This starts a new-code request pre-filled from it.</p>
+                <p>&bull; <strong>Add supplier</strong> — the product's right, it just needs pricing from a different supplier.</p>
+            </div>
+            <div class="help-step">
+                <h3>3. Need several things at once?</h3>
+                <p>Tick the checkbox on the left of each result you need (or "Select all visible"), then click "Request selected" in the bar that appears at the bottom. One email covers everything you've picked, instead of separate requests for each.</p>
+            </div>
+            <div class="help-step">
+                <h3>4. Genuinely nothing exists yet?</h3>
+                <p>Scroll down and click "Request a brand new stock code". It'll double-check against close matches first — if none of those fit, you'll get the full form to fill in.</p>
+            </div>
+            <div class="help-step">
+                <h3>5. Filling in the form</h3>
+                <p>Fields marked with a red * are required. Fields that are greyed out and already filled in (like Stock Code on a Reactivate) are just for reference — you don't need to touch them. When you're done, click the button at the bottom — this opens a pre-filled email in Outlook. <strong>Nothing is sent until you personally click Send in Outlook</strong> — check the email over first.</p>
+            </div>
+            <div class="help-step">
+                <h3>Still stuck, or something looks wrong?</h3>
+                <p>Email <strong>onecallreports@hss.com</strong> directly and describe what you were trying to do.</p>
+            </div>
+        </div>
+        <div class="modal-actions" style="justify-content:flex-end;">
+            <button type="button" class="btn primary" id="help-close-btn">Got it</button>
+        </div>
+    </div>
+</div>
+
 <script>
 const RECIPIENT = "onecallreports@hss.com";
 const DATA_URL = "catalogue_search_data.json";
@@ -412,6 +487,7 @@ let activeCategory = "all";
 let selectedItems = new Map(); // stock_code -> product object
 let expandedSupplierCount = new Set(); // stock codes where "Suppliers available: N" was clicked
 let dismissedDuplicateCodes = new Set(); // stock codes already shown+dismissed in this New request's flow
+let nextNewItemIndex = 0; // ever-incrementing, never reused even after a card is removed — keeps field names collision-free
 let currentMatches = [];
 let otherSupplierMatches = []; // fuzzy leftovers when an exact supplier code match is found
 let displayCount = 0;
@@ -511,7 +587,29 @@ async function loadCategoryMap() {
 // Builds the HTML for the cascading Category / Sub-category dropdown pair, optionally
 // pre-selected (used on Clone to default to the source product's own category, still
 // editable in case the new one genuinely belongs somewhere else).
-function categoryDropdownsHtml(selectedCategory, selectedSubCategory) {
+// idx: when provided (0, 1, 2...), produces indexed field names (newitem_category_0 etc)
+// for the multi-new-item cards; omitted, produces the original plain "category"/"sub_category"
+// names used by Clone and the single-item New form.
+// Fixed list rather than built from allProducts — this needs to be available before data
+// has necessarily loaded, and the five verticals are stable enough not to need deriving.
+const KNOWN_VERTICALS = ["Hire", "Equipment Sales", "Building Materials", "Fuel", "Waste"];
+
+function verticalSelectHtml(selectedVertical, idx) {
+    const name = idx !== undefined ? `newitem_vertical_${idx}` : "vertical";
+    return `
+        <div class="field">
+            <label>Vertical <span class="req">*</span></label>
+            <select name="${name}" required>
+                <option value="">-- select --</option>
+                ${KNOWN_VERTICALS.map(v => `<option value="${escapeAttr(v)}" ${v === selectedVertical ? "selected" : ""}>${escapeHtml(v)}</option>`).join("")}
+            </select>
+        </div>
+    `;
+}
+
+function categoryDropdownsHtml(selectedCategory, selectedSubCategory, idx) {
+    const catName = idx !== undefined ? `newitem_category_${idx}` : "category";
+    const subName = idx !== undefined ? `newitem_sub_category_${idx}` : "sub_category";
     const categories = Object.keys(categoryMap).sort();
     if (categories.length === 0) {
         // Fallback if the mapping file didn't load — plain text inputs, same as before.
@@ -519,11 +617,11 @@ function categoryDropdownsHtml(selectedCategory, selectedSubCategory) {
             <div class="field-row">
                 <div class="field">
                     <label>Category <span class="req">*</span></label>
-                    <input type="text" name="category" required value="${escapeAttr(selectedCategory || "")}">
+                    <input type="text" name="${catName}" required value="${escapeAttr(selectedCategory || "")}">
                 </div>
                 <div class="field">
                     <label>Sub-category <span class="req">*</span></label>
-                    <input type="text" name="sub_category" required value="${escapeAttr(selectedSubCategory || "")}">
+                    <input type="text" name="${subName}" required value="${escapeAttr(selectedSubCategory || "")}">
                 </div>
             </div>
         `;
@@ -534,14 +632,14 @@ function categoryDropdownsHtml(selectedCategory, selectedSubCategory) {
         <div class="field-row">
             <div class="field">
                 <label>Category <span class="req">*</span></label>
-                <select name="category" class="category-select" required>
+                <select name="${catName}" class="category-select" required>
                     <option value="">-- select --</option>
                     ${categories.map(c => `<option value="${escapeAttr(c)}" ${catValid && c === selectedCategory ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
                 </select>
             </div>
             <div class="field">
                 <label>Sub-category <span class="req">*</span></label>
-                <select name="sub_category" class="subcategory-select" required ${catValid ? "" : "disabled"}>
+                <select name="${subName}" class="subcategory-select" required ${catValid ? "" : "disabled"}>
                     <option value="">${catValid ? "-- select --" : "-- pick a category first --"}</option>
                     ${subOptions.map(sc => `<option value="${escapeAttr(sc)}" ${sc === selectedSubCategory ? "selected" : ""}>${escapeHtml(sc)}</option>`).join("")}
                 </select>
@@ -550,18 +648,26 @@ function categoryDropdownsHtml(selectedCategory, selectedSubCategory) {
     `;
 }
 
-// Wires up a category select so choosing a category repopulates its paired sub-category
-// select with only the valid options for it. Call this once, right after inserting HTML
-// built by categoryDropdownsHtml() into the form.
+// Wires up EVERY category/sub-category select pair currently in the form (not just the
+// first) — needed once New forms can have multiple item cards, each with its own pair.
+// Pairs are matched by DOM position (each card's category-select is immediately followed,
+// within that same card, by its own subcategory-select), via closest(".new-item-card")
+// when present, falling back to "the whole form has exactly one pair" for Clone/single-item
+// New. Safe to call repeatedly — e.g. after adding a new card — since it only wires
+// elements that don't already have a listener (tracked via a data attribute).
 function wireCategoryDropdown(form) {
-    const catSelect = form.querySelector(".category-select");
-    const subSelect = form.querySelector(".subcategory-select");
-    if (!catSelect || !subSelect) return;
-    catSelect.addEventListener("change", () => {
-        const subs = categoryMap[catSelect.value] || [];
-        subSelect.disabled = subs.length === 0;
-        subSelect.innerHTML = `<option value="">${subs.length ? "-- select --" : "-- pick a category first --"}</option>` +
-            subs.map(sc => `<option value="${escapeAttr(sc)}">${escapeHtml(sc)}</option>`).join("");
+    form.querySelectorAll(".category-select").forEach(catSelect => {
+        if (catSelect.dataset.wired) return;
+        catSelect.dataset.wired = "true";
+        const card = catSelect.closest(".new-item-card");
+        const subSelect = card ? card.querySelector(".subcategory-select") : form.querySelector(".subcategory-select");
+        if (!subSelect) return;
+        catSelect.addEventListener("change", () => {
+            const subs = categoryMap[catSelect.value] || [];
+            subSelect.disabled = subs.length === 0;
+            subSelect.innerHTML = `<option value="">${subs.length ? "-- select --" : "-- pick a category first --"}</option>` +
+                subs.map(sc => `<option value="${escapeAttr(sc)}">${escapeHtml(sc)}</option>`).join("");
+        });
     });
 }
 
@@ -574,7 +680,7 @@ async function loadData() {
             throw new Error(`Data file returned ${res.status} — check catalogue_search_data.json exists in this folder`);
         }
         const data = await res.json();
-        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs", "supplier_count", "supplier_count_capped", "current_suppliers", "won_contracts_12mo"];
+        const cols = data.columns || ["stock_code", "stock_name", "vertical", "category_l1", "category_l2", "active", "aliases", "supplier_refs", "supplier_count", "supplier_count_capped", "current_suppliers", "won_contracts_12mo", "bulk_load", "sla", "cutoff_time"];
         const lookups = data.lookups || {}; // vertical/category_l1/category_l2 are indices into these, to cut repeated-string bloat
         const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
         categoryMap = await loadCategoryMap(); // for the New/Clone form dropdowns
@@ -1159,37 +1265,72 @@ function openModal(type, product) {
         </div>
     `;
 
-    const commercialFields = `
+    // defaultRate: "Weekly" | "Consumable" | "" — pre-selects Rate structure. Clone uses
+    // this (BM/EQ vertical -> Consumable, else Weekly); Reactivate/New leave it unset.
+    // idx: indexed field names for multi-new-item cards, same convention as categoryDropdownsHtml.
+    function commercialFieldsHtml(defaultRate, idx) {
+        defaultRate = defaultRate || "";
+        const n = (field) => idx !== undefined ? `newitem_${field}_${idx}` : field;
+        return `
         <div class="field-row">
             <div class="field">
                 <label>Supplier name <span class="req">*</span></label>
-                <input type="text" name="supplier_name" required>
+                <input type="text" name="${n("supplier_name")}" required>
             </div>
             <div class="field">
                 <label>Cost <span class="req">*</span></label>
-                <input type="text" name="cost" required>
+                <input type="text" name="${n("cost")}" required>
             </div>
         </div>
         <div class="field-row">
             <div class="field">
                 <label>Rate structure <span class="req">*</span></label>
-                <select name="rate_structure" required>
+                <select name="${n("rate_structure")}" required>
                     <option value="">-- select --</option>
-                    <option value="Weekly">Weekly</option>
-                    <option value="Consumable">Consumable</option>
+                    <option value="Weekly" ${defaultRate === "Weekly" ? "selected" : ""}>Weekly</option>
+                    <option value="Consumable" ${defaultRate === "Consumable" ? "selected" : ""}>Consumable</option>
                 </select>
             </div>
             <div class="field">
                 <label>Transport cost <span class="req">*</span></label>
-                <input type="text" name="transport_cost" required>
+                <input type="text" name="${n("transport_cost")}" required>
             </div>
         </div>
         <p style="font-size:12px; color:var(--inactive); margin:-8px 0 14px;">* If the rate is daily or something other than Weekly/Consumable, note it in the comments below.</p>
         <div class="field">
             <label>Supplier stock code</label>
-            <input type="text" name="supplier_stock_code" placeholder="Optional — the supplier's own reference, if known">
+            <input type="text" name="${n("supplier_stock_code")}" placeholder="Optional — the supplier's own reference, if known">
         </div>
-    `;
+        `;
+    }
+    // Kept as a plain variable too, for the few spots that just want the no-default version.
+    const commercialFields = commercialFieldsHtml("");
+
+    // Bulk load / SLA / Cut off time — shared by New (always blank, no source to prefill
+    // from) and Clone (prefilled from the real source product, falling back to sensible
+    // generic defaults when that data isn't on record). All three stay editable either way.
+    function operationalFieldsHtml(bulkLoad, sla, cutoff, idx) {
+        const bulkVal = (bulkLoad !== undefined && bulkLoad !== null) ? bulkLoad : "";
+        const slaVal = (sla !== undefined && sla !== null) ? sla : "";
+        const cutoffVal = cutoff || "";
+        const n = (field) => idx !== undefined ? `newitem_${field}_${idx}` : field;
+        return `
+        <div class="field-row">
+            <div class="field">
+                <label>Bulk load <span class="req">*</span></label>
+                <input type="text" name="${n("bulk_load")}" required value="${escapeAttr(bulkVal)}">
+            </div>
+            <div class="field">
+                <label>SLA (days) <span class="req">*</span></label>
+                <input type="text" name="${n("sla")}" required value="${escapeAttr(slaVal)}">
+            </div>
+        </div>
+        <div class="field">
+            <label>Cut off time <span class="req">*</span></label>
+            <input type="text" name="${n("cutoff_time")}" required value="${escapeAttr(cutoffVal)}">
+        </div>
+        `;
+    }
 
     if (type === "multi") {
         currentMultiItems = product; // an array, passed in from btn-request-multiple
@@ -1276,8 +1417,13 @@ function openModal(type, product) {
     } else if (type === "clone") {
         title.textContent = "Request a new code based on an existing one";
         sub.textContent = "We'll set this up using the product below as a starting template.";
+        const cloneDefaultRate = (product.vertical === "Building Materials" || product.vertical === "Equipment Sales")
+            ? "Consumable" : "Weekly";
         form.innerHTML = `
-            <input type="hidden" name="vertical" value="${escapeAttr(product.vertical)}">
+            <div class="field">
+                <label>Vertical</label>
+                <input type="text" name="vertical" value="${escapeAttr(product.vertical)}" readonly>
+            </div>
             <div class="field">
                 <label>Source stock code</label>
                 <input type="text" name="source_stock_code" value="${escapeAttr(product.stock_code)}" readonly>
@@ -1292,41 +1438,70 @@ function openModal(type, product) {
                 <label>New product description <span class="req">*</span></label>
                 <input type="text" name="new_description" required placeholder="What should the new code be called?">
             </div>
-            ${commercialFields}
+            ${operationalFieldsHtml(product.bulk_load != null ? product.bulk_load : 1, product.sla != null ? product.sla : 1, product.cutoff_time || "15:00")}
+            <p style="font-size:12px; color:var(--subtext); margin:-8px 0 14px;">Bulk load/SLA/cut off pulled from the source product where we have it on record — check and adjust if needed.</p>
+            ${commercialFieldsHtml(cloneDefaultRate)}
             ${commonFields}
             ${submitRow()}
         `;
     } else if (type === "new") {
         title.textContent = "Request a brand new stock code";
-        sub.textContent = "For when nothing in the catalogue is close enough to reuse or clone.";
+        sub.textContent = "For when nothing in the catalogue is close enough to reuse or clone. Need more than one? Add as many as you need below — one email covers the lot.";
+
+        // Builds one item's full field set, wrapped in a card. Defined here (inside
+        // openModal) so it closes over commercialFieldsHtml/operationalFieldsHtml, which
+        // are themselves only defined inside this function — the "+ Add another item"
+        // button's handler, wired below, keeps working after openModal returns because
+        // it's also defined in this same closure, not called from outside it.
+        function newItemCardHtml(idx) {
+            return `
+            <div class="new-item-card" data-idx="${idx}" style="border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:14px; position:relative;">
+                <button type="button" class="btn remove-item-btn" data-idx="${idx}" style="position:absolute; top:10px; right:10px; font-size:11px; padding:4px 10px; display:none;">Remove</button>
+                <div class="field">
+                    <label>Proposed product description <span class="req">*</span></label>
+                    <input type="text" name="newitem_description_${idx}" required>
+                </div>
+                ${verticalSelectHtml("", idx)}
+                ${categoryDropdownsHtml(null, null, idx)}
+                ${operationalFieldsHtml(null, null, null, idx)}
+                ${commercialFieldsHtml("", idx)}
+            </div>
+            `;
+        }
+
+        function updateRemoveButtons(container) {
+            const cards = container.querySelectorAll(".new-item-card");
+            cards.forEach(card => {
+                const btn = card.querySelector(".remove-item-btn");
+                if (btn) btn.style.display = cards.length > 1 ? "block" : "none";
+            });
+        }
+
+        nextNewItemIndex = 0;
+        const firstIdx = nextNewItemIndex++;
         form.innerHTML = `
-            <div class="field">
-                <label>Proposed product description <span class="req">*</span></label>
-                <input type="text" name="new_description" required>
-            </div>
-            <div class="field">
-                <label>Vertical <span class="req">*</span></label>
-                <input type="text" name="vertical" required>
-            </div>
-            ${categoryDropdownsHtml()}
-            <div class="field-row">
-                <div class="field">
-                    <label>Bulk load <span class="req">*</span></label>
-                    <input type="text" name="bulk_load" required>
-                </div>
-                <div class="field">
-                    <label>SLA (days) <span class="req">*</span></label>
-                    <input type="text" name="sla" required>
-                </div>
-            </div>
-            <div class="field">
-                <label>Cut off time <span class="req">*</span></label>
-                <input type="text" name="cutoff_time" required>
-            </div>
-            ${commercialFields}
+            <div id="new-items-container">${newItemCardHtml(firstIdx)}</div>
+            <button type="button" class="btn" id="add-new-item-btn" style="margin-bottom:16px;">+ Add another new item</button>
             ${commonFields}
             ${submitRow()}
         `;
+
+        const container = form.querySelector("#new-items-container");
+        document.getElementById("add-new-item-btn").addEventListener("click", () => {
+            const idx = nextNewItemIndex++;
+            const div = document.createElement("div");
+            div.innerHTML = newItemCardHtml(idx).trim();
+            container.appendChild(div.firstChild);
+            wireCategoryDropdown(form);
+            updateRemoveButtons(container);
+        });
+
+        container.addEventListener("click", (e) => {
+            if (!e.target.classList.contains("remove-item-btn")) return;
+            const card = e.target.closest(".new-item-card");
+            if (card) card.remove();
+            updateRemoveButtons(container);
+        });
     }
 
     overlay.classList.add("show");
@@ -1353,6 +1528,16 @@ function closeModal() {
 
 document.getElementById("overlay").addEventListener("click", (e) => {
     if (e.target.id === "overlay") closeModal();
+});
+
+document.getElementById("help-btn").addEventListener("click", () => {
+    document.getElementById("help-overlay").classList.add("show");
+});
+document.getElementById("help-close-btn").addEventListener("click", () => {
+    document.getElementById("help-overlay").classList.remove("show");
+});
+document.getElementById("help-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "help-overlay") document.getElementById("help-overlay").classList.remove("show");
 });
 
 function showDuplicateInterstitial(term, matches, onContinue, isFollowUp) {
@@ -1426,8 +1611,57 @@ function showDuplicateCheck() {
 
 document.getElementById("btn-brand-new").addEventListener("click", showDuplicateCheck);
 
+// Catches someone mashing "0" through mandatory numeric fields just to get past
+// validation. Soft warning, not a hard block — can't stop anyone editing the email
+// afterwards anyway, so this just makes them pause and confirm rather than silently
+// accepting it. Cost is allowed to genuinely be 0 (free items exist) — still worth a
+// nudge, but phrased less alarmingly than the others. Covers both single-item field
+// names (cost, transport_cost, bulk_load, sla) and the Multi form's per-item versions
+// (item_cost_0, item_transport_0, etc.).
+function findZeroValueFields(data) {
+    const targets = ["cost", "transport_cost", "bulk_load", "sla"];
+    const found = [];
+    Object.entries(data).forEach(([key, value]) => {
+        const trimmed = (value || "").toString().trim();
+        if (trimmed !== "0") return;
+        const isTarget = targets.some(t =>
+            key === t ||
+            key.match(new RegExp(`^item_${t}_\\d+$`)) ||
+            key.match(new RegExp(`^newitem_${t}_\\d+$`))
+        );
+        if (isTarget) {
+            const label = key.replace(/^(new)?item_/, "").replace(/_\d+$/, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+            found.push(label);
+        }
+    });
+    return [...new Set(found)];
+}
+
+// Which New-item card indices actually made it into this submission — based on the
+// "description" field, since every card always has exactly one of those. Used to detect
+// whether this is the common single-item case (behaves exactly as before this feature
+// existed) or a genuine multi-item batch (gets its own email format).
+function findNewItemIndices(data) {
+    const indices = [];
+    Object.keys(data).forEach(key => {
+        const m = key.match(/^newitem_description_(\d+)$/);
+        if (m) indices.push(parseInt(m[1], 10));
+    });
+    return indices.sort((a, b) => a - b);
+}
+
 function submitRequest(type, form) {
     const data = Object.fromEntries(new FormData(form).entries());
+
+    const zeroFields = findZeroValueFields(data);
+    if (zeroFields.length > 0) {
+        const proceed = window.confirm(
+            `You've entered 0 for: ${zeroFields.join(", ")}.\n\n` +
+            `If that's not deliberate (e.g. mashed in to get past a required field), go back and fix it.\n\n` +
+            `Click OK to send as-is, or Cancel to go back and check.`
+        );
+        if (!proceed) return;
+    }
 
     // Final check before a "new code" request actually sends — the earlier check only
     // looked at whatever was in the search box when the button was clicked, which could
@@ -1439,7 +1673,13 @@ function submitRequest(type, form) {
     // original fields (and whatever was typed into them) no longer exist in the DOM.
     // `data` is captured once, above, before that happens, and passed straight through
     // to finalizeSubmit() rather than ever being re-read from the form afterwards.
-    if (type === "new" && data.new_description && fuse) {
+    // Only runs for the single-item case — chaining multiple "here's what we found"
+    // interstitials across several brand-new items at once would be a confusing flow, so
+    // a multi-item New submission skips this check entirely and goes straight through.
+    const newItemIndices = type === "new" ? findNewItemIndices(data) : [];
+    const singleItemDescription = newItemIndices.length === 1 ? data[`newitem_description_${newItemIndices[0]}`] : null;
+
+    if (type === "new" && singleItemDescription && fuse) {
         const submitBtn = form.querySelector('button[type="submit"]');
         const originalBtnText = submitBtn ? submitBtn.textContent : "";
         if (submitBtn) {
@@ -1452,7 +1692,7 @@ function submitRequest(type, form) {
         // shown+dismissed in the first "Before you continue" screen — otherwise this is
         // invisible and the email just opens, so the same-looking prompt never appears twice.
         setTimeout(() => {
-            const dupMatches = fuse.search(normalizeUnits(data.new_description)).slice(0, 5).map(r => r.item);
+            const dupMatches = fuse.search(normalizeUnits(singleItemDescription)).slice(0, 5).map(r => r.item);
             const newMatches = dupMatches.filter(m => !dismissedDuplicateCodes.has(m.stock_code));
 
             if (newMatches.length > 0) {
@@ -1460,7 +1700,7 @@ function submitRequest(type, form) {
                     submitBtn.disabled = false;
                     submitBtn.textContent = originalBtnText;
                 }
-                showDuplicateInterstitial(data.new_description, newMatches, () => {
+                showDuplicateInterstitial(singleItemDescription, newMatches, () => {
                     finalizeSubmit(type, data);
                 }, true);
             } else {
@@ -1489,12 +1729,51 @@ function finalizeSubmit(type, data) {
             return `${label}: ${data[key] || ""}`;
         }).join("\n");
         body = `Products requested:\n${itemLines}\n\n${otherLines}`;
+    } else if (type === "new") {
+        const itemIndices = findNewItemIndices(data);
+        const itemFieldNames = ["description", "vertical", "category", "sub_category", "bulk_load", "sla", "cutoff_time", "supplier_name", "cost", "rate_structure", "transport_cost", "supplier_stock_code"];
+
+        if (itemIndices.length <= 1) {
+            // Single item — remapped back to the original flat field names (new_description,
+            // vertical, category, ...) so the email looks exactly as it did before this
+            // feature existed, rather than exposing the internal newitem_X_0 naming.
+            const idx = itemIndices[0] !== undefined ? itemIndices[0] : 0;
+            const flatData = {};
+            Object.entries(data).forEach(([key, value]) => {
+                const m = key.match(/^newitem_(.+)_\d+$/);
+                if (!m) { flatData[key] = value; return; }
+                if (parseInt(key.match(/_(\d+)$/)[1], 10) !== idx) return; // drop any other card's fields if present
+                flatData[m[1] === "description" ? "new_description" : m[1]] = value;
+            });
+            subject = `[STOCK - NEW] ${flatData.new_description}`;
+            const bodyLines = Object.entries(flatData).map(([key, value]) => {
+                const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                return `${label}: ${value}`;
+            });
+            body = bodyLines.join("\n");
+        } else {
+            // Multiple items — one email, each item laid out as its own block, shared
+            // requester/site/contract/comments fields once at the bottom.
+            subject = `[STOCK - NEW MULTIPLE] ${itemIndices.length} items requested by ${data.requester_name}`;
+            const itemBlocks = itemIndices.map((idx, n) => {
+                const lines = itemFieldNames.map(f => {
+                    const label = f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                    return `    ${label}: ${data[`newitem_${f}_${idx}`] || ""}`;
+                }).join("\n");
+                return `Item ${n + 1}:\n${lines}`;
+            }).join("\n\n");
+            const sharedKeys = ["requester_name", "requester_email", "site_postcode", "contract_number", "comments"];
+            const sharedLines = sharedKeys.map(key => {
+                const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                return `${label}: ${data[key] || ""}`;
+            }).join("\n");
+            body = `Items requested:\n\n${itemBlocks}\n\n${sharedLines}`;
+        }
     } else {
         const prefixMap = {
             reactivate: `[STOCK - REACTIVATE] ${data.stock_code} - ${data.stock_name}`,
             supplier: `[STOCK - ADD SUPPLIER] ${data.stock_code} - ${data.stock_name}`,
-            clone: `[STOCK - CLONE] from ${data.source_stock_code} - ${data.new_description}`,
-            new: `[STOCK - NEW] ${data.new_description}`
+            clone: `[STOCK - CLONE] from ${data.source_stock_code} - ${data.new_description}`
         };
         const bodyLines = Object.entries(data).map(([key, value]) => {
             const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
