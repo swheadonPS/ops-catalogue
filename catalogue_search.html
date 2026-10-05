@@ -1312,7 +1312,9 @@ function openModal(type, product) {
     function operationalFieldsHtml(bulkLoad, sla, cutoff, idx) {
         const bulkVal = (bulkLoad !== undefined && bulkLoad !== null) ? bulkLoad : "";
         const slaVal = (sla !== undefined && sla !== null) ? sla : "";
-        const cutoffVal = cutoff || "";
+        // DB times come back as HH:MM:SS; trim the seconds so real values and the "15:00"
+        // fallback default look the same.
+        const cutoffVal = /^\d{2}:\d{2}:\d{2}$/.test(cutoff || "") ? cutoff.slice(0, 5) : (cutoff || "");
         const n = (field) => idx !== undefined ? `newitem_${field}_${idx}` : field;
         return `
         <div class="field-row">
@@ -1463,7 +1465,7 @@ function openModal(type, product) {
                 </div>
                 ${verticalSelectHtml("", idx)}
                 ${categoryDropdownsHtml(null, null, idx)}
-                ${operationalFieldsHtml(null, null, null, idx)}
+                ${operationalFieldsHtml(1, 1, "15:00", idx)}
                 ${commercialFieldsHtml("", idx)}
             </div>
             `;
@@ -1501,6 +1503,26 @@ function openModal(type, product) {
             const card = e.target.closest(".new-item-card");
             if (card) card.remove();
             updateRemoveButtons(container);
+        });
+
+        // Rate structure follows the vertical (BM/EQ -> Consumable, otherwise Weekly), same
+        // rule as Clone — but a New card doesn't know its vertical until it's picked, so
+        // it's set on change. If someone picks a rate themselves first, that's respected
+        // (marked via data-touched) and never overwritten by a later vertical change.
+        container.addEventListener("change", (e) => {
+            const card = e.target.closest(".new-item-card");
+            if (!card) return;
+            const rateSelect = card.querySelector('select[name^="newitem_rate_structure_"]');
+            if (!rateSelect) return;
+            if (e.target.name && e.target.name.startsWith("newitem_rate_structure_")) {
+                rateSelect.dataset.touched = "true";
+                return;
+            }
+            if (e.target.name && e.target.name.startsWith("newitem_vertical_") && !rateSelect.dataset.touched) {
+                const v = e.target.value;
+                if (!v) return;
+                rateSelect.value = (v === "Building Materials" || v === "Equipment Sales") ? "Consumable" : "Weekly";
+            }
         });
     }
 
