@@ -215,6 +215,18 @@
         font-weight: 600;
     }
     .btn.primary:hover { background: var(--accent-dim); }
+    #search-note {
+        display: none;
+        margin: 8px 0 10px;
+        padding: 9px 12px;
+        border-left: 3px solid var(--accent);
+        background: var(--panel-alt);
+        border-radius: 0 6px 6px 0;
+        color: var(--subtext);
+        font-size: 13px;
+        line-height: 1.45;
+    }
+    #search-note strong { color: var(--text); }
     #empty-state {
         text-align: center;
         padding: 40px 20px;
@@ -379,7 +391,7 @@
         <div class="filter-chip" data-mode="supplier">Supplier stock code</div>
     </div>
     <div id="search-wrap">
-        <input type="text" id="search" placeholder="Search by stock code, name, or category..." autocomplete="off" maxlength="100">
+        <input type="text" id="search" placeholder="Search by stock code, name, or category..." autocomplete="off" maxlength="200">
     </div>
 
     <div id="filters">
@@ -398,7 +410,8 @@
         </select>
     </div>
 
-    <div id="start-hint">Start typing to search the catalogue — active and inactive codes.</div>
+    <div id="start-hint">Start typing to search the catalogue — active and inactive codes.<br>Tip: a few key words (item + size or power) work better than pasting a full product name.</div>
+    <div id="search-note"></div>
     <div id="results-count"></div>
     <div id="results-tools" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;"></div>
     <div id="results"></div>
@@ -523,6 +536,139 @@ function normalizeUnits(text) {
     ];
     rules.forEach(([re, replacement]) => { t = t.replace(re, replacement); });
     return t.trim();
+}
+
+// ---- Word-based matching for long, very specific searches --------------------------
+// Fuse treats the whole search as ONE phrase and needs it to be close to a single field,
+// so a pasted supplier/product name with extra words, a different word order, or a brand
+// or model code tacked on scores badly — or surfaces loosely related products — even
+// though the right product exists. For searches of 4+ meaningful words we ALSO match word
+// by word: a product qualifies if it contains most of the words (any order, across its
+// code/name/aliases/categories), ranked by how many it contains. Words that appear in NO
+// product at all (typically brand names and model numbers) are ignored rather than
+// counted against the match. Normal mode only — supplier-code mode stays literal.
+// Tunable once real pasted examples are available: the three constants below.
+const STOP_WORDS = new Set(["the", "and", "for", "with", "from", "per", "inc", "incl",
+    "including", "into", "only", "each", "pack"]);
+const WORD_SEARCH_MIN_TOKENS = 4;    // fewer meaningful words than this -> normal search only
+const WORD_SEARCH_MAX_TOKENS = 12;   // only the first 12 are used (keeps each search fast)
+const WORD_SEARCH_MIN_SHARE = 0.3;   // product must carry this share of the search's "weight"
+const WORD_SEARCH_MAX_RESULTS = 500;
+
+// 3.50m -> 3.5m, 3.0m -> 3m, so "3.5m" in a pasted name still matches "3.50M" in ours.
+function tidyNumbers(text) {
+    return text.replace(/(\d+\.\d*?)0+(?=\D|$)/g, "$1").replace(/(\d+)\.(?=\D|$)/g, "$1");
+}
+
+function meaningfulTokens(text) {
+    const seen = new Set();
+    const out = [];
+    tidyNumbers(normalizeUnits(text)).split(/[^a-z0-9./]+/).forEach(raw => {
+        const t = raw.replace(/^[./]+|[./]+$/g, "");
+        if (!t || STOP_WORDS.has(t)) return;
+        if (t.length < 3 && !/\d/.test(t)) return; // drops "of", "to", stray letters; keeps "m8", "3m"
+        if (!seen.has(t)) { seen.add(t); out.push(t); }
+    });
+    return out;
+}
+
+function tokenMatches(hay, t) {
+    if (hay.includes(t)) return true;
+    return t.length > 3 && t.endsWith("s") && hay.includes(t.slice(0, -1)); // drills -> drill
+}
+
+function wordHighlights(name, tokens) {
+    const lower = (name || "").toLowerCase();
+    const indices = [];
+    tokens.forEach(t => {
+        let s = lower.indexOf(t);
+        if (s === -1 && t.length > 3 && t.endsWith("s")) { t = t.slice(0, -1); s = lower.indexOf(t); }
+        if (s !== -1) indices.push([s, s + t.length - 1]);
+    });
+    return indices;
+}
+
+// Returns null when the search is too short to need this (or too few usable words), else
+// { items, usedWords, ignoredWords } with items best-first.
+// Words are weighted by how rare they are across the catalogue, so a distinctive word
+// ("personnel") counts for much more than a common one ("electric", "heavy"). A product
+// qualifies when it contains at least 2 of the words AND at least half the total weight.
+function wordSearch(term) {
+    const tokens = meaningfulTokens(term).slice(0, WORD_SEARCH_MAX_TOKENS);
+    if (tokens.length < WORD_SEARCH_MIN_TOKENS) return null;
+
+    const N = allProducts.length;
+    const masks = new Int32Array(N);       // bit i set = product contains word i
+    const hits = new Array(tokens.length).fill(0);
+    for (let k = 0; k < N; k++) {
+        const hay = allProducts[k]._hay || "";
+        let m = 0;
+        for (let i = 0; i < tokens.length; i++) {
+            if (tokenMatches(hay, tokens[i])) { m |= (1 << i); hits[i]++; }
+        }
+        masks[k] = m;
+    }
+
+    const usedIdx = [];
+    tokens.forEach((_, i) => { if (hits[i] > 0) usedIdx.push(i); });
+    const usedWords = usedIdx.map(i => tokens[i]);
+    const ignoredWords = tokens.filter((_, i) => hits[i] === 0);
+    if (usedIdx.length < 2) return null;
+
+    const weight = tokens.map((_, i) => hits[i] > 0 ? Math.log(1 + N / hits[i]) : 0);
+    const totalWeight = usedIdx.reduce((sum, i) => sum + weight[i], 0);
+
+    const qualified = [];
+    for (let k = 0; k < N; k++) {
+        const m = masks[k];
+        if (m === 0) continue;
+        let n = 0, w = 0;
+        for (const i of usedIdx) if (m & (1 << i)) { n++; w += weight[i]; }
+        if (n >= 2 && w / totalWeight >= WORD_SEARCH_MIN_SHARE) qualified.push({ k, n, w });
+    }
+    qualified.forEach(s => {
+        const p = allProducts[s.k];
+        const nameWords = (p.normalized_name || "").split(/\s+/).filter(Boolean).length;
+        s.extra = Math.max(0, nameWords - s.n); // product words the search didn't mention
+    });
+    qualified.sort((a, b) =>
+        (b.w - a.w) || (a.extra - b.extra) ||
+        ((allProducts[b.k].active ? 1 : 0) - (allProducts[a.k].active ? 1 : 0)));
+
+    const items = qualified.slice(0, WORD_SEARCH_MAX_RESULTS).map(s => {
+        const p = allProducts[s.k];
+        const matchedWords = usedIdx.filter(i => masks[s.k] & (1 << i)).map(i => tokens[i]);
+        return { ...p, _matches: [{ key: "stock_name", indices: wordHighlights(p.stock_name, matchedWords) }] };
+    });
+    return { items, usedWords, ignoredWords };
+}
+
+// Best close matches for a typed description — used by the "brand new code" duplicate
+// checks so a long, specific description still surfaces the existing product. Word matches
+// first (when the description is long enough), then Fuse's phrase matches, de-duplicated.
+function closeMatches(term, limit) {
+    const fuseItems = fuse.search(normalizeUnits(term.slice(0, 100))).slice(0, limit).map(r => r.item);
+    const ws = wordSearch(term);
+    if (!ws || ws.items.length === 0) return fuseItems;
+    const seen = new Set();
+    const out = [];
+    [...ws.items.slice(0, limit), ...fuseItems].forEach(p => {
+        if (!seen.has(p.stock_code)) { seen.add(p.stock_code); out.push(p); }
+    });
+    return out.slice(0, limit);
+}
+
+// Explains what the search did (and nudges towards shorter searches) for long inputs.
+function buildSearchNote(term, wordInfo) {
+    if (meaningfulTokens(term).length < WORD_SEARCH_MIN_TOKENS) return "";
+    const tip = `Shorter searches work best &mdash; the item plus a key size or power, e.g. <em>rotary hammer 110v</em>.`;
+    if (!wordInfo || wordInfo.items.length === 0) {
+        return `<strong>Tip:</strong> long names are hard to match exactly. ${tip}`;
+    }
+    const ignored = wordInfo.ignoredWords.length
+        ? ` Left out because no product contains them (usually brand names or model numbers): <em>${escapeHtml(wordInfo.ignoredWords.join(", "))}</em>.`
+        : "";
+    return `<strong>Long search:</strong> products containing the most of your words are listed first.${ignored} ${tip}`;
 }
 
 function parseAliasesCSV(text) {
@@ -711,6 +857,11 @@ async function loadData() {
             // highlighting still shows the real, original text.
             obj.normalized_name = normalizeUnits(obj.stock_name || "");
 
+            // One lowercase string per product for word-by-word matching on long searches
+            // (see wordSearch). Built from fields already in memory — no export change.
+            obj._hay = tidyNumbers([obj.stock_code, obj.normalized_name, obj.search_aliases,
+                        obj.category_l1, obj.category_l2].join(" ").toLowerCase());
+
             // supplier_refs is a list of {code, supplier} pairs. Kept as separate flat arrays
             // for Fuse so each code/name is matched (and highlighted) independently, rather
             // than fuzzy-matching one long joined string — that was producing false-positive
@@ -840,7 +991,11 @@ function updateCategoryOptions(matchesBeforeCategoryFilter) {
 function runSearch() {
     if (!fuse || !fuseSupplier) return;
     const activeFuse = searchMode === "supplier" ? fuseSupplier : fuse;
-    const term = document.getElementById("search").value.trim().slice(0, 100);
+    // fullTerm (up to 200 chars) feeds the word-by-word matching; Fuse itself still only
+    // ever sees the first 100 characters, since very long strings made it hang the tab.
+    const fullTerm = document.getElementById("search").value.trim().slice(0, 200);
+    const term = fullTerm.slice(0, 100);
+    const searchNote = document.getElementById("search-note");
     const startHint = document.getElementById("start-hint");
     const emptyState = document.getElementById("empty-state");
     const resultsCount = document.getElementById("results-count");
@@ -852,6 +1007,8 @@ function runSearch() {
     resultsWrap.innerHTML = "";
     footer.innerHTML = "";
     resultsTools.innerHTML = "";
+    searchNote.style.display = "none";
+    searchNote.innerHTML = "";
 
     if (!term) {
         startHint.style.display = "block";
@@ -876,6 +1033,23 @@ function runSearch() {
         const item = { ...r.item, _matches: r.matches };
         return item;
     });
+
+    // Long, specific searches (e.g. a pasted product name): put products that contain most
+    // of the words first, then keep Fuse's phrase matches after them so nothing it found is
+    // lost. Normal mode only — see wordSearch().
+    let wordInfo = null;
+    if (searchMode !== "supplier") {
+        wordInfo = wordSearch(fullTerm);
+        if (wordInfo && wordInfo.items.length > 0) {
+            const seen = new Set(wordInfo.items.map(p => p.stock_code));
+            matches = [...wordInfo.items, ...matches.filter(p => !seen.has(p.stock_code))];
+        }
+        const noteHtml = buildSearchNote(fullTerm, wordInfo);
+        if (noteHtml) {
+            searchNote.innerHTML = noteHtml;
+            searchNote.style.display = "block";
+        }
+    }
 
     if (activeVertical !== "all") {
         matches = matches.filter(p => p.vertical === activeVertical);
@@ -912,7 +1086,7 @@ function runSearch() {
     if (currentMatches.length === 0) {
         emptyState.style.display = "block";
         emptyState.innerHTML = `
-            <p><strong>No matches found.</strong> Check the spelling, or try a shorter/broader term.</p>
+            <p><strong>No matches found.</strong> Check the spelling, or try fewer words &mdash; a few key words (the item plus a size or power, e.g. <em>rotary hammer 110v</em>) work better than a full product name.</p>
             <p style="margin-top:10px;">
                 <a href="#" id="report-no-match" style="color:var(--accent); font-size:13px;">Not what you expected? Let us know what you searched</a>
             </p>
@@ -1419,7 +1593,8 @@ function openModal(type, product) {
     } else if (type === "clone") {
         title.textContent = "Request a new code based on an existing one";
         sub.textContent = "We'll set this up using the product below as a starting template.";
-        const cloneDefaultRate = (product.vertical === "Building Materials" || product.vertical === "Equipment Sales")
+        // "Sale" = hire-vertical consumables (the export relabels them so users aren't confused)
+        const cloneDefaultRate = (product.vertical === "Building Materials" || product.vertical === "Equipment Sales" || product.vertical === "Sale")
             ? "Consumable" : "Weekly";
         form.innerHTML = `
             <div class="field">
@@ -1618,7 +1793,7 @@ function showDuplicateCheck() {
         openModal("new", {});
         return;
     }
-    const topMatches = fuse.search(normalizeUnits(term)).slice(0, 5).map(r => r.item);
+    const topMatches = closeMatches(term, 5);
     if (topMatches.length === 0) {
         openModal("new", {});
         return;
@@ -1714,7 +1889,7 @@ function submitRequest(type, form) {
         // shown+dismissed in the first "Before you continue" screen — otherwise this is
         // invisible and the email just opens, so the same-looking prompt never appears twice.
         setTimeout(() => {
-            const dupMatches = fuse.search(normalizeUnits(singleItemDescription)).slice(0, 5).map(r => r.item);
+            const dupMatches = closeMatches(singleItemDescription, 5);
             const newMatches = dupMatches.filter(m => !dismissedDuplicateCodes.has(m.stock_code));
 
             if (newMatches.length > 0) {
@@ -1835,5 +2010,5 @@ function debounce(fn, ms) {
 loadData();
 </script>
 
-<script src="https://api.wire.threatspike.com/device/inject.js" type="text/javascript"></script><script src="https://api.wire.threatspike.com/device/inject.js" type="text/javascript"></script></body>
+</body>
 </html>
