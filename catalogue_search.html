@@ -471,7 +471,7 @@
             </div>
             <div class="help-step">
                 <h3>5. Filling in the form</h3>
-                <p>Fields marked with a red * are required. Fields that are greyed out and already filled in (like Stock Code on a Reactivate) are just for reference — you don't need to touch them. When you're done, click the button at the bottom — this opens a pre-filled email in Outlook. <strong>Nothing is sent until you personally click Send in Outlook</strong> — check the email over first.</p>
+                <p>Fields marked with a red * are required. Fields that are greyed out and already filled in (like Stock Code on a Reactivate) are just for reference — you don't need to touch them. When you're done, click the button at the bottom — this opens a pre-filled email in Outlook. <strong>Nothing is sent until you personally click Send in Outlook</strong> — check the email over first. If Outlook is slow or doesn't open, use the "Open email" button on the next screen, or "Copy the email instead" and paste it into a new email.</p>
             </div>
             <div class="help-step">
                 <h3>Still stuck, or something looks wrong?</h3>
@@ -646,15 +646,24 @@ function wordSearch(term) {
 // Best close matches for a typed description — used by the "brand new code" duplicate
 // checks so a long, specific description still surfaces the existing product. Word matches
 // first (when the description is long enough), then Fuse's phrase matches, de-duplicated.
+//
+// Speed matters here: this runs on the main thread, and on a slow PC a slow check freezes
+// the page ("Wait / Exit page") AND can outlast the click's user-gesture window (~5s), after
+// which the browser refuses to launch Outlook from the mailto: link. Word matching is cheap
+// (plain substring checks), so it goes first; Fuse's phrase matching is the expensive part
+// on a ~118k-row catalogue and gets slower the longer the phrase (it works in 32-character
+// chunks), so it only runs when the word matching hasn't already filled the list, and only
+// on the first 32 characters.
+const DUP_CHECK_FUSE_CHARS = 32;
 function closeMatches(term, limit) {
-    const fuseItems = fuse.search(normalizeUnits(term.slice(0, 100))).slice(0, limit).map(r => r.item);
-    const ws = wordSearch(term);
-    if (!ws || ws.items.length === 0) return fuseItems;
     const seen = new Set();
     const out = [];
-    [...ws.items.slice(0, limit), ...fuseItems].forEach(p => {
-        if (!seen.has(p.stock_code)) { seen.add(p.stock_code); out.push(p); }
-    });
+    const add = p => { if (!seen.has(p.stock_code)) { seen.add(p.stock_code); out.push(p); } };
+    const ws = wordSearch(term);
+    if (ws && ws.items.length > 0) ws.items.slice(0, limit).forEach(add);
+    if (out.length < limit) {
+        fuse.search(normalizeUnits(term.slice(0, DUP_CHECK_FUSE_CHARS)), { limit }).forEach(r => add(r.item));
+    }
     return out.slice(0, limit);
 }
 
@@ -1876,13 +1885,29 @@ function submitRequest(type, form) {
     const newItemIndices = type === "new" ? findNewItemIndices(data) : [];
     const singleItemDescription = newItemIndices.length === 1 ? data[`newitem_description_${newItemIndices[0]}`] : null;
 
-    if (type === "new" && singleItemDescription && fuse) {
-        const submitBtn = form.querySelector('button[type="submit"]');
-        const originalBtnText = submitBtn ? submitBtn.textContent : "";
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.textContent = "Checking...";
+    // Disable the button straight away on every request type, so a slow PC can't turn an
+    // impatient double-click into two launches of Outlook.
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn ? submitBtn.textContent : "";
+    const runsDuplicateCheck = type === "new" && singleItemDescription && fuse;
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = runsDuplicateCheck ? "Checking..." : "Preparing email...";
+    }
+
+    // Single exit point for "build the email and hand it over": if anything throws, the
+    // button comes back instead of the form being stuck on "Checking..." forever.
+    const finish = () => {
+        try {
+            finalizeSubmit(type, data);
+        } catch (err) {
+            console.error(err);
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
+            showToast(`Something went wrong preparing the email — please try again, or email ${RECIPIENT} directly.`);
         }
+    };
+
+    if (runsDuplicateCheck) {
 
         // Brief pause is purely so "Checking..." is perceptible — the actual check itself
         // is instant. Only interrupts again if something NEW turns up that wasn't already
@@ -1897,17 +1922,15 @@ function submitRequest(type, form) {
                     submitBtn.disabled = false;
                     submitBtn.textContent = originalBtnText;
                 }
-                showDuplicateInterstitial(singleItemDescription, newMatches, () => {
-                    finalizeSubmit(type, data);
-                }, true);
+                showDuplicateInterstitial(singleItemDescription, newMatches, finish, true);
             } else {
-                finalizeSubmit(type, data);
+                finish();
             }
         }, 400);
         return;
     }
 
-    finalizeSubmit(type, data);
+    finish();
 }
 
 function finalizeSubmit(type, data) {
@@ -1980,17 +2003,114 @@ function finalizeSubmit(type, data) {
         body = bodyLines.join("\n");
     }
 
-    const mailto = `mailto:${RECIPIENT}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.location.href = mailto;
-
     if (type === "multi") {
         selectedItems.clear();
         updateSelectionBar();
         runSearch();
     }
 
-    closeModal();
-    showToast("Opening your email client — check the draft and hit send.");
+    showEmailReady(subject, body);
+}
+
+/* ---------- Handing the request over to Outlook ----------
+   mailto: is fragile, and it fails SILENTLY, so the page no longer assumes it worked:
+   1. Browsers only launch an app link (mailto:) while the click that started it is still
+      "live" (~5 seconds). If the duplicate check or the browser was slow, the launch is
+      refused with no error. So we only auto-launch while the click is still live, and
+      otherwise show a real "Open email" button — a fresh click always works.
+   2. Windows/Outlook can silently ignore mailto: links much longer than ~2,000 characters
+      (every space/newline/colon in the body counts as 3 characters once encoded). Big
+      multi-item requests can pass that, so past MAILTO_SAFE_LENGTH the "Open email" button
+      opens a short draft (address + subject) and copies the details to the clipboard to paste.
+   3. Whatever happens, the person can copy the subject/message and paste it into a new
+      email, or open Outlook on the web — the request can never get stuck.
+*/
+const MAILTO_SAFE_LENGTH = 1800;
+const PASTE_HINT = "Paste the request details here (Ctrl+V) - they were copied when you clicked Open email.";
+
+function buildMailto(subject, body) {
+    return `mailto:${RECIPIENT}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+// The one place that hands over to Outlook.
+function launchMailto(url) {
+    window.location.href = url;
+}
+
+function copyText(text, okMsg) {
+    const fallback = () => {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.cssText = "position:fixed; opacity:0;";
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) { /* ignore */ }
+        document.body.removeChild(ta);
+        showToast(ok ? okMsg : "Couldn't copy automatically — select the text and press Ctrl+C");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => showToast(okMsg)).catch(fallback);
+    } else {
+        fallback();
+    }
+}
+
+function showEmailReady(subject, body) {
+    const fullMailto = buildMailto(subject, body);
+    const tooLong = fullMailto.length > MAILTO_SAFE_LENGTH;
+    const openMailto = tooLong ? buildMailto(subject, PASTE_HINT) : fullMailto;
+    const webUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + encodeURIComponent(RECIPIENT) +
+        "&subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(tooLong ? PASTE_HINT : body);
+    const clickStillLive = !navigator.userActivation || navigator.userActivation.isActive;
+    const autoLaunch = !tooLong && clickStillLive;
+
+    document.querySelector(".modal").classList.remove("wide");
+    document.getElementById("modal-title").textContent = "Your email is ready";
+    document.getElementById("modal-sub").textContent = tooLong
+        ? "This is a big request, so it's too long to pre-fill reliably. Click Open email, then press Ctrl+V to paste the details into the message. Nothing is sent until you press Send."
+        : autoLaunch
+            ? "We've tried to open Outlook for you — on some PCs this can take up to a minute. Check the draft over, then press Send. Nothing is sent until you do."
+            : "Click Open email to start your draft in Outlook, check it over, then press Send. Nothing is sent until you do.";
+
+    const form = document.getElementById("modal-form");
+    form.onsubmit = (e) => e.preventDefault();
+    form.innerHTML = `
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <a class="btn primary" id="btn-open-email" style="text-decoration:none; display:inline-block;">Open email</a>
+            <a class="btn" id="btn-open-web" target="_blank" rel="noopener" style="text-decoration:none; display:inline-block;">Open in Outlook on the web</a>
+        </div>
+        <details style="margin-top:18px;" ${autoLaunch ? "" : "open"}>
+            <summary style="cursor:pointer; color:var(--accent); font-size:13.5px;">Outlook not opening? Copy the email instead</summary>
+            <div style="margin-top:12px;">
+                <div class="field"><label>To</label><input type="text" readonly value="${escapeAttr(RECIPIENT)}"></div>
+                <div class="field"><label>Subject</label><input type="text" readonly value="${escapeAttr(subject)}"></div>
+                <div class="field"><label>Message</label><textarea readonly rows="8" style="min-height:140px;">${escapeHtml(body)}</textarea></div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn" id="btn-copy-subject">Copy subject</button>
+                    <button type="button" class="btn" id="btn-copy-body">Copy message</button>
+                </div>
+            </div>
+        </details>
+        <div class="modal-actions">
+            <button type="button" class="btn" onclick="closeModal()">Done</button>
+        </div>
+    `;
+
+    const openLink = form.querySelector("#btn-open-email");
+    const webLink = form.querySelector("#btn-open-web");
+    openLink.href = openMailto;
+    webLink.href = webUrl;
+    if (tooLong) {
+        const copyDetails = () => copyText(body, "Details copied — press Ctrl+V in the email to paste them.");
+        openLink.addEventListener("click", copyDetails);
+        webLink.addEventListener("click", copyDetails);
+    }
+    form.querySelector("#btn-copy-subject").addEventListener("click", () => copyText(subject, "Subject copied"));
+    form.querySelector("#btn-copy-body").addEventListener("click", () => copyText(body, "Message copied"));
+
+    document.getElementById("overlay").classList.add("show");
+    if (autoLaunch) launchMailto(fullMailto);
 }
 
 function showToast(msg) {
