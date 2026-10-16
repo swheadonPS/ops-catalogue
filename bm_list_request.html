@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Building Materials List Request</title>
+<style>
+    :root {
+        --bg: #1e1e2e;
+        --panel: #232336;
+        --panel-alt: #2a2a3d;
+        --accent: #7c6af7;
+        --accent-dim: #5b4fc4;
+        --text: #e0e0f0;
+        --subtext: #9090b0;
+        --border: #34344a;
+        --ok: #5fd97f;
+        --warn: #f2a950;
+        --danger: #f2607a;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: "Segoe UI", -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        font-size: 14px;
+    }
+    header { padding: 28px 24px 18px; text-align: center; border-bottom: 1px solid var(--border); }
+    header img { max-height: 40px; margin-bottom: 8px; }
+    header h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; }
+    header p { margin: 0; color: var(--subtext); }
+    #meta { color: var(--subtext); font-size: 12px; margin-top: 6px; }
+    main { max-width: 1240px; margin: 0 auto; padding: 22px 20px 90px; }
+    .hidden { display: none !important; }
+
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px; margin-bottom: 18px; }
+    .card h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    .num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; }
+    .hint { color: var(--subtext); margin: 4px 0 14px; line-height: 1.5; }
+
+    details.help { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; margin-bottom: 18px; }
+    details.help summary { cursor: pointer; color: var(--accent); }
+    details.help ol { margin: 10px 0 2px; padding-left: 20px; line-height: 1.7; color: var(--subtext); }
+
+    label { display: block; font-size: 12.5px; color: var(--subtext); margin-bottom: 5px; }
+    .req { color: var(--danger); }
+    input[type=text], input[type=email], input[type=number], input[type=time], select, textarea {
+        width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+        background: var(--panel-alt); color: var(--text); font: inherit; outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 70px; }
+    .field { margin-bottom: 14px; }
+    .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; font-size: 12px; font-weight: 600; color: var(--subtext); padding: 6px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 5px 6px; vertical-align: top; border-bottom: 1px solid rgba(52,52,74,0.5); }
+    td.n { width: 34px; color: var(--subtext); text-align: right; padding-top: 12px; }
+    td.cost { width: 110px; }
+    td.code { width: 190px; }
+    td.rm { width: 36px; }
+    .x { background: none; border: none; color: var(--subtext); cursor: pointer; font-size: 15px; padding: 7px; }
+    .x:hover { color: var(--danger); }
+
+    .btn { display: inline-block; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-alt); color: var(--text); font: inherit; cursor: pointer; text-decoration: none; }
+    .btn:hover { border-color: var(--accent); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    .btn.primary:hover { background: var(--accent-dim); }
+    .btn:disabled { opacity: 0.55; cursor: default; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+    .count { color: var(--subtext); font-size: 13px; margin-left: auto; }
+    #progress { color: var(--subtext); margin-top: 10px; min-height: 18px; }
+
+    #summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+    .pill { padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); font-size: 13px; }
+    .pill.ok { color: var(--ok); border-color: rgba(95,217,127,0.4); }
+    .pill.warn { color: var(--warn); border-color: rgba(242,169,80,0.4); }
+    .pill.bad { color: var(--danger); border-color: rgba(242,96,122,0.4); }
+
+    #review { table-layout: fixed; }
+    #review th:nth-child(1), #review td.n { width: 30px; }
+    #review th:nth-child(2) { width: 76px; }
+    #review th:nth-child(4) { width: 64px; }
+    #review th:nth-child(5) { width: 215px; }
+    #review th:nth-child(6) { width: 285px; }
+    #review th:nth-child(7), #review td.rm { width: 32px; }
+    textarea.r-name { min-height: 0; resize: none; overflow: hidden; line-height: 1.35; padding: 7px 10px; }
+    select.need { border-color: var(--warn); }
+    .also { margin-top: 5px; font-size: 11.5px; color: var(--subtext); line-height: 1.4; }
+    .also div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .orig { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #review td.status { width: 76px; padding-top: 11px; }
+    .chip { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+    .chip.ok { background: rgba(95,217,127,0.15); color: var(--ok); }
+    .chip.warn { background: rgba(242,169,80,0.16); color: var(--warn); }
+    .chip.bad { background: rgba(242,96,122,0.16); color: var(--danger); }
+    tr.state-bad td { background: rgba(242,96,122,0.05); }
+    .msgs { font-size: 12px; color: var(--subtext); margin-top: 4px; line-height: 1.45; }
+    .msgs .m-bad { color: var(--danger); }
+    .msgs .m-warn { color: var(--warn); }
+    .orig { font-size: 11.5px; color: var(--subtext); margin-top: 3px; }
+    .sugg { font-size: 11.5px; color: var(--subtext); margin-top: 3px; }
+    #review td.rcost { padding-top: 11px; text-align: right; }
+
+    #blockers { margin-top: 12px; color: var(--danger); line-height: 1.6; }
+    #blockers:empty { display: none; }
+    details.opts { margin: 4px 0 14px; }
+    details.opts summary { cursor: pointer; color: var(--accent); }
+    details.opts .field-row { margin-top: 12px; }
+    .note { color: var(--subtext); font-size: 12.5px; line-height: 1.5; margin-top: 6px; }
+    pre.preview { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 8px; padding: 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; }
+    #toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); background: var(--panel-alt); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 18px; opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 10; }
+    #toast.show { opacity: 1; }
+    #load-error { color: var(--danger); margin: 14px 0; }
+</style>
+</head>
+<body>
+<header>
+    <img id="logo" src="logo.png" alt="" onerror="this.style.display='none'">
+    <h1>Building Materials &mdash; list request</h1>
+    <p>Got a list of items? Paste it in, check it against the catalogue, and send it in one go.</p>
+    <div id="meta">Loading catalogue&hellip;</div>
+</header>
+
+<main>
+    <div id="load-error" class="hidden"></div>
+
+    <details class="help">
+        <summary>How this works (30 seconds)</summary>
+        <ol>
+            <li><strong>Paste your list</strong> straight from Excel &mdash; three columns: description, cost, supplier stock code (code is optional). Up to 50 lines at a time.</li>
+            <li><strong>Check my list</strong> tidies the names and looks for items that already exist, so you don't create duplicates.</li>
+            <li><strong>Review</strong> each line &mdash; use an existing code, or confirm it's new and pick its sub-category.</li>
+            <li><strong>Send</strong> &mdash; download the CSV and/or open the email. Nothing is sent until you press Send in Outlook.</li>
+        </ol>
+    </details>
+
+    <section class="card" id="step1">
+        <h2><span class="num">1</span> Your list</h2>
+        <p class="hint">Click in the first Description box and paste (Ctrl+V) &mdash; Excel columns drop into the right boxes. One supplier per list; send a second list for a different supplier.</p>
+        <div class="field" style="max-width:340px;">
+            <label for="supplier">Supplier name <span class="req">*</span></label>
+            <input type="text" id="supplier" autocomplete="off" placeholder="e.g. Wolseley">
+        </div>
+        <table>
+            <thead><tr><th></th><th>Description <span class="req">*</span></th><th>Cost (&pound;) <span class="req">*</span></th><th>Supplier stock code</th><th></th></tr></thead>
+            <tbody id="grid-body"></tbody>
+        </table>
+        <div class="actions">
+            <button class="btn" id="btn-add" type="button">+ Add line</button>
+            <button class="btn" id="btn-clear" type="button">Clear all</button>
+            <span class="count" id="line-count"></span>
+        </div>
+        <div class="actions">
+            <button class="btn primary" id="btn-check" type="button" disabled>Check my list</button>
+            <span id="progress"></span>
+        </div>
+    </section>
+
+    <section class="card hidden" id="step2">
+        <h2><span class="num">2</span> Review</h2>
+        <p class="hint">Lines marked <strong>Fix</strong> or <strong>Choose</strong> need something from you before you can send. <strong>Check</strong> means we found something similar &mdash; have a look. Names are tidied for you; edit any you don't like, then press Re-check.</p>
+        <div id="summary"></div>
+        <table id="review">
+            <thead><tr><th></th><th>Status</th><th>Name</th><th>Cost</th><th>Sub-category</th><th>Already in the catalogue?</th><th></th></tr></thead>
+            <tbody id="review-body"></tbody>
+        </table>
+        <div class="actions">
+            <button class="btn" id="btn-recheck" type="button">Re-check</button>
+            <span id="recheck-note" class="note"></span>
+        </div>
+    </section>
+
+    <section class="card hidden" id="step3">
+        <h2><span class="num">3</span> Your details</h2>
+        <div class="field-row">
+            <div class="field"><label for="req-name">Your name <span class="req">*</span></label><input type="text" id="req-name" autocomplete="name"></div>
+            <div class="field"><label for="req-email">Your email <span class="req">*</span></label><input type="email" id="req-email" autocomplete="email"></div>
+            <div class="field"><label for="req-postcode">Site postcode <span class="req">*</span></label><input type="text" id="req-postcode"></div>
+            <div class="field"><label for="req-contract">Contract number <span class="req">*</span></label><input type="text" id="req-contract"></div>
+        </div>
+        <div class="field"><label for="req-comments">Comments (optional)</label><textarea id="req-comments"></textarea></div>
+        <details class="opts">
+            <summary>Settings for the new items (already filled in &mdash; change only if you need to)</summary>
+            <div class="field-row">
+                <div class="field"><label for="d-bulk">Bulk load</label><input type="number" id="d-bulk" min="1" step="1"></div>
+                <div class="field"><label for="d-sla">SLA</label><input type="number" id="d-sla" min="1" step="1"></div>
+                <div class="field"><label for="d-cutoff">Cut off time</label><input type="time" id="d-cutoff"></div>
+                <div class="field"><label for="d-rate">Rate structure</label><select id="d-rate"><option>Consumable</option><option>Weekly</option></select></div>
+                <div class="field"><label for="d-transport">Transport cost (&pound;)</label><input type="number" id="d-transport" min="0" step="0.01"></div>
+            </div>
+            <p class="note" id="defaults-note"></p>
+        </details>
+        <div id="blockers"></div>
+        <div class="actions"><button class="btn primary" id="btn-prepare" type="button">Prepare my email</button></div>
+    </section>
+
+    <section class="card hidden" id="step4">
+        <h2><span class="num">4</span> Send it</h2>
+        <p class="hint" id="out-summary"></p>
+        <div class="actions" style="margin-top:0;">
+            <button class="btn primary" id="btn-csv" type="button">1. Download the CSV</button>
+            <a class="btn primary" id="btn-open-email" href="#">2. Open email</a>
+            <a class="btn" id="btn-open-web" href="#" target="_blank" rel="noopener">Open in Outlook on the web</a>
+            <button class="btn" id="btn-copy" type="button">Copy email text</button>
+        </div>
+        <p class="note" id="out-note"></p>
+        <details class="opts"><summary>See the email text</summary><pre class="preview" id="out-preview"></pre></details>
+        <div class="actions"><button class="btn" id="btn-back" type="button">&larr; Back to my list</button></div>
+    </section>
+</main>
+<div id="toast"></div>
+
+<script>
+/* =====================================================================
+   Building Materials list request
+   - Paste a batch (max 50), tidy names, check each line against the BM catalogue,
+     suggest a sub-category, then hand over as a CSV and/or a pre-filled email.
+   - No Fuse.js: matching is done here (token overlap weighted by how rare each word is),
+     so the page has no outside dependencies.
+   ===================================================================== */
+const RECIPIENT = "onecallreports@hss.com";
+const VERTICAL = "Building Materials";
+const DATA_URL = "bm_search_data.json";
+const CATEGORY_URL = "bm_category_subcategory.csv";
+const MAX_LINES = 50;
+const START_ROWS = 8;
+const MAILTO_SAFE_LENGTH = 1800;     // longer than this and Outlook may silently ignore the link
+const LIKELY_SCORE = 0.75;           // same size/spec + this much word overlap = "looks like it already exists"
+const SIMILAR_SCORE = 0.50;          // same size/spec + this much = "very similar, same product?"; +0.1 with a different size = "same kind of item"
+const MIN_SUGGEST_SHARE = 0.45;      // how clearly one sub-category must win to be pre-selected
+
+// Mechanical fixes applied when tidying a name. Add your own: [regex, replacement, note shown to the user].
+const KNOWN_FIXES = [
+    [/\bEN1507\b/g, "EN1057", "EN1507 → EN1057 (the copper tube standard)"],
+    [/(\d),(\d{3})\b/g, "$1$2", "removed comma from a number"],
+];
+const STOP = new Set(["X", "PER", "OF", "THE", "AND", "FOR", "WITH", "M", "MTR", "MTRS", "METRE", "METRES"]);
+
+const $ = s => document.querySelector(s);
+const escapeHtml = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const escapeAttr = escapeHtml;
+const nextTick = () => new Promise(r => setTimeout(r, 0));
+
+let products = [];          // {code, name, category, sub, active, sla, bulk, cutoff}
+let subList = [];           // [{category, sub}] offered in the dropdown
+let subOptionsHtml = "";
+let index = new Map();      // token -> [product idx]
+let idf = new Map();
+let pTokens = [], pWeight = [], pSpec = [], pKey = [];
+let lines = [];             // the reviewed lines
+let dirtyNames = false;
+let prepared = false;
+
+/* ---------------- CSV parsing (handles quoted commas) ---------------- */
+function parseCSV(text) {
+    const rows = []; let row = [], cur = "", q = false;
+    text = text.replace(/^﻿/, "");
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (q) {
+            if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+            else cur += c;
+        } else if (c === '"') q = true;
+        else if (c === ",") { row.push(cur); cur = ""; }
+        else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+        else if (c !== "\r") cur += c;
+    }
+    if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+}
+function toCSV(rows) {
+    const esc = v => { v = String(v ?? ""); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    return "﻿" + rows.map(r => r.map(esc).join(",")).join("\r\n");
+}
+
+/* ---------------- Name tidying (shown to the user, written to the email/CSV) ---------------- */
+function tidyName(raw) {
+    const notes = [];
+    let s = String(raw || "").replace(/\s+/g, " ").trim().toUpperCase();
+    const before = s;
+    const lead = s.match(/^[\s*@$#!~^&+]+/);
+    if (lead) { s = s.slice(lead[0].length).trim(); notes.push("removed the leading symbols"); }
+    KNOWN_FIXES.forEach(([re, rep, label]) => { re.lastIndex = 0; if (re.test(s)) { re.lastIndex = 0; s = s.replace(re, rep); notes.push(label); } });
+    const mOf = s.match(/^(?:M|MTRS?|METRES?) OF\s+/);
+    if (mOf) {
+        s = s.slice(mOf[0].length);
+        if (!/\bPER\s*\/?\s*(M|MTRS?|METRES?)\b/.test(s)) s += " PER METRE";
+        notes.push('"M OF" moved to the end as PER METRE');
+    }
+    const tight = s.replace(/(\d)\s+(MM|CM|M|KG|G|L|V|W|A|KW|KVA)\b/g, "$1$2").replace(/(\d)GM\b/g, "$1G").replace(/(\d)MTRS?\b/g, "$1M");
+    if (tight !== s) { s = tight; notes.push("units tidied (e.g. 22 MM → 22MM, 475GM → 475G)"); }
+    s = s.replace(/\s{2,}/g, " ").trim();
+    return { name: s, notes, changed: s !== before };
+}
+function nameHints(name) {
+    const hints = [];
+    if (/^\d/.test(name)) hints.push("Starts with a size — names should start with what the item is (e.g. COPPER TUBE 35MM…).");
+    return hints;
+}
+
+/* ---------------- Matching ---------------- */
+function tokenise(name) {
+    let s = String(name || "").toUpperCase();
+    s = s.replace(/^[\s*@$#!~^&+]+/, "");
+    s = s.replace(/(\d)\s+(MM|CM|M|MTR|MTRS|KG|G|GM|L|LTR|LTRS|V|W|A|KW|KVA)\b/g, "$1$2");
+    s = s.replace(/(\d)GM\b/g, "$1G").replace(/(\d)MTRS?\b/g, "$1M").replace(/(\d)\s*(?:DEG|DEGREES?)\b/g, "$1DEG");
+    s = s.replace(/(\d)(MM|CM|M)?\s*X\s*(?=\d)/g, "$1$2 X ");
+    s = s.replace(/(\d)\/(\d)/g, "$1_$2");
+    s = s.replace(/\b([A-Z])\/([A-Z])\b/g, "$1$2");
+    s = s.replace(/([A-Z])-(?=[A-Z])/g, "$1");
+    s = s.replace(/([A-Z])\.(?=[A-Z])/g, "$1");
+    s = s.replace(/[^A-Z0-9_.]+/g, " ");
+    s = s.replace(/(?<!\d)\.|\.(?!\d)/g, " ");
+    const out = []; const seen = new Set();
+    s.split(" ").forEach(t => { if (t && !STOP.has(t) && !seen.has(t)) { seen.add(t); out.push(t); } });
+    return out;
+}
+const isSpec = t => /\d/.test(t);
+const specKey = toks => toks.filter(isSpec).sort().join("|");
+
+function buildIndex() {
+    index = new Map(); pTokens = []; pWeight = []; pSpec = []; pKey = [];
+    const df = new Map();
+    products.forEach((p, i) => {
+        const t = tokenise(p.name);
+        pTokens[i] = t;
+        pSpec[i] = specKey(t);
+        pKey[i] = t.slice().sort().join(" ");
+        t.forEach(tok => {
+            df.set(tok, (df.get(tok) || 0) + 1);
+            if (!index.has(tok)) index.set(tok, []);
+            index.get(tok).push(i);
+        });
+    });
+    const N = products.length;
+    idf = new Map();
+    df.forEach((n, tok) => idf.set(tok, Math.log(1 + N / n)));
+    // Words (WHAT it is) and specs (sizes, codes - anything with a digit) are weighed separately:
+    // two products can share "CB EF 22MM" and still be completely different items.
+    pWordW = pTokens.map(t => t.reduce((a, tok) => a + (isSpec(tok) ? 0 : w(tok)), 0));
+    pSpecW = pTokens.map(t => t.reduce((a, tok) => a + (isSpec(tok) ? w(tok) : 0), 0));
+}
+let pWordW = [], pSpecW = [];
+// How much a word counts when comparing names. Rarer = more telling, but capped so one odd
+// brand name can't swamp the item type, and 1-2 letter codes (CB, EF, TS...) count for little
+// because they're supplier/brand prefixes, not what the item IS.
+const W_CAP = 6;
+const w = tok => {
+    const base = Math.min(idf.get(tok) ?? W_CAP, W_CAP);
+    return (!isSpec(tok) && tok.length <= 2) ? base * 0.35 : base;
+};
+const overlap = (sh, a, b) => (a > 0 && b > 0) ? 0.5 * (sh / (a + b - sh)) + 0.5 * (sh / Math.min(a, b)) : 0;
+
+function findMatches(name) {
+    const qt = tokenise(name);
+    const res = { cls: "none", matches: [], key: qt.slice().sort().join(" "), neighbours: [] };
+    if (!qt.length) return res;
+    const qSpec = specKey(qt);
+    const qWordW = qt.reduce((a, t) => a + (isSpec(t) ? 0 : w(t)), 0);
+    const qSpecW = qt.reduce((a, t) => a + (isSpec(t) ? w(t) : 0), 0);
+    const sharedWord = new Map(), sharedSpec = new Map();
+    qt.forEach(t => {
+        const post = index.get(t); if (!post) return;
+        const wt = w(t), m = isSpec(t) ? sharedSpec : sharedWord;
+        post.forEach(i => m.set(i, (m.get(i) || 0) + wt));
+    });
+    const cands = new Set([...sharedWord.keys(), ...sharedSpec.keys()]);
+    const scored = [];
+    cands.forEach(i => {
+        const word = overlap(sharedWord.get(i) || 0, qWordW, pWordW[i]);
+        const spec = overlap(sharedSpec.get(i) || 0, qSpecW, pSpecW[i]);
+        const score = qWordW > 0 ? 0.8 * word + 0.2 * spec : spec;
+        if (word >= 0.25 || (qWordW === 0 && spec >= 0.5)) scored.push({ i, score, word, sameSpec: pSpec[i] === qSpec, exact: pKey[i] === res.key });
+    });
+    scored.sort((a, b) => b.score - a.score || (products[b.i].active - products[a.i].active));
+    res.neighbours = scored.filter(m => m.word >= 0.4).slice(0, 10);
+    const exact = scored.find(m => m.exact);
+    const likely = scored.filter(m => m.sameSpec && m.word >= LIKELY_SCORE);
+    const possible = scored.filter(m => m.sameSpec && m.word >= SIMILAR_SCORE);
+    const similar = scored.filter(m => m.word >= SIMILAR_SCORE + 0.1);
+    const rest = list => list.filter(m => !res.matches.includes(m));
+    if (exact) { res.cls = "exact"; res.matches = [exact]; }
+    else if (likely.length) { res.cls = "likely"; res.matches = likely.slice(0, 3); }
+    else if (possible.length) { res.cls = "possible"; res.matches = possible.slice(0, 3); }
+    else if (similar.length) { res.cls = "similar"; res.matches = similar.slice(0, 3); }
+    if (res.matches.length < 3) res.matches = res.matches.concat(rest(similar)).slice(0, 3);
+    return res;
+}
+
+function suggestSub(neighbours) {
+    const allowed = new Set(subList.map(s => s.sub));
+    const votes = new Map(); let total = 0;
+    neighbours.slice(0, 8).forEach(n => {
+        const sub = products[n.i].sub;
+        const wt = n.score * n.score;
+        total += wt;
+        if (allowed.has(sub)) votes.set(sub, (votes.get(sub) || 0) + wt);
+    });
+    let best = null, bw = 0;
+    votes.forEach((v, k) => { if (v > bw) { best = k; bw = v; } });
+    return best && total > 0 && bw / total >= MIN_SUGGEST_SHARE ? best : "";
+}
+
+/* ---------------- Loading ---------------- */
+async function loadAll() {
+    let data, csvText = "";
+    if (window.BM_INLINE) { data = window.BM_INLINE.data; csvText = window.BM_INLINE.csv || ""; }
+    else {
+        const r = await fetch(DATA_URL, { cache: "no-store" });
+        if (!r.ok) throw new Error(`${DATA_URL} returned ${r.status} — check it is in the same folder as this page`);
+        data = await r.json();
+        try { const c = await fetch(CATEGORY_URL, { cache: "no-store" }); if (c.ok) csvText = await c.text(); } catch (e) { /* falls back below */ }
+    }
+    const cols = data.columns; const ix = n => cols.indexOf(n);
+    const L = data.lookups || {};
+    products = data.products.map(r => ({
+        code: r[ix("stock_code")], name: r[ix("stock_name")],
+        category: L.category[r[ix("category")]], sub: L.sub_category[r[ix("sub_category")]],
+        active: !!r[ix("active")], sla: r[ix("sla")], bulk: r[ix("bulk_load")], cutoff: r[ix("cutoff_time")],
+    }));
+    subList = [];
+    if (csvText) parseCSV(csvText).slice(1).forEach(r => { if (r[0] && r[1]) subList.push({ category: r[0].trim(), sub: r[1].trim() }); });
+    if (!subList.length) {   // CSV missing: fall back to sub-categories seen on at least 3 products
+        const n = new Map(); products.forEach(p => n.set(p.sub + "\u0000" + p.category, (n.get(p.sub + "\u0000" + p.category) || 0) + 1));
+        n.forEach((c, k) => { const [sub, category] = k.split("\u0000"); if (c >= 3 && sub) subList.push({ category, sub }); });
+    }
+    subList.sort((a, b) => a.sub.localeCompare(b.sub));
+    subOptionsHtml = '<option value="">-- choose --</option>' + subList.map(s => `<option value="${escapeAttr(s.sub)}">${escapeHtml(s.sub)}</option>`).join("");
+    buildIndex();
+    const when = data.generated_at ? new Date(data.generated_at).toLocaleDateString("en-GB") : "";
+    $("#meta").textContent = `${products.length.toLocaleString()} Building Materials products checked against${when ? " · data from " + when : ""}`;
+    setDefaults();
+}
+function modeOf(arr, fallback) {
+    const m = new Map(); arr.forEach(v => { if (v !== "" && v != null) m.set(v, (m.get(v) || 0) + 1); });
+    let best = fallback, bn = 0; m.forEach((n, v) => { if (n > bn) { best = v; bn = n; } });
+    return best;
+}
+function setDefaults() {
+    const bulk = modeOf(products.map(p => p.bulk), "1"), sla = modeOf(products.map(p => p.sla), "1"), cut = modeOf(products.map(p => p.cutoff), "12:00");
+    $("#d-bulk").value = bulk; $("#d-sla").value = sla; $("#d-cutoff").value = String(cut).slice(0, 5);
+    $("#d-transport").value = "0"; $("#d-rate").value = "Consumable";
+    $("#defaults-note").textContent = `Pre-filled with what most existing Building Materials products use (bulk load ${bulk}, SLA ${sla}, cut off ${String(cut).slice(0, 5)}). These apply to every NEW line.`;
+}
+
+/* ---------------- Step 1: the grid ---------------- */
+const gridBody = $("#grid-body");
+const COLS = ["g-desc", "g-cost", "g-code"];
+function addRow(vals) {
+    if (gridBody.children.length >= MAX_LINES) return null;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="n"></td>
+        <td><input type="text" class="g-desc" maxlength="200" autocomplete="off"></td>
+        <td class="cost"><input type="text" class="g-cost" inputmode="decimal" autocomplete="off"></td>
+        <td class="code"><input type="text" class="g-code" maxlength="60" autocomplete="off"></td>
+        <td class="rm"><button type="button" class="x" tabindex="-1" title="Remove this line">✕</button></td>`;
+    gridBody.appendChild(tr);
+    if (vals) COLS.forEach((c, i) => { tr.querySelector("." + c).value = vals[i] ?? ""; });
+    renumber();
+    return tr;
+}
+function renumber() {
+    [...gridBody.children].forEach((tr, i) => { tr.querySelector(".n").textContent = i + 1; });
+    const used = filledRows().length;
+    $("#line-count").textContent = `${used} of ${MAX_LINES} lines used`;
+    $("#btn-check").disabled = used === 0 || !products.length;
+    $("#btn-add").disabled = gridBody.children.length >= MAX_LINES;
+}
+function rowVals(tr) { return COLS.map(c => tr.querySelector("." + c).value.trim()); }
+function filledRows() { return [...gridBody.children].filter(tr => rowVals(tr).some(v => v !== "")); }
+function parseCost(s) {
+    s = String(s ?? "").replace(/[£\s]/g, "").replace(/,(?=\d{3}(\D|$))/g, "");
+    return /^\d*\.?\d+$/.test(s) ? parseFloat(s) : NaN;
+}
+function applyPaste(target, text) {
+    const rows = text.replace(/\r/g, "").split("\n");
+    while (rows.length && rows[rows.length - 1].trim() === "") rows.pop();
+    let data = rows.map(r => r.split("\t"));
+    if (data.length && data[0].length > 1 && isNaN(parseCost(data[0][1])) && /desc|name|item|product|cost|price|code/i.test(data[0].join(" "))) data = data.slice(1);
+    const tr = target.closest("tr");
+    let r0 = [...gridBody.children].indexOf(tr);
+    const c0 = Math.max(0, COLS.findIndex(c => target.classList.contains(c)));
+    let dropped = 0;
+    data.forEach((cells, k) => {
+        let row = gridBody.children[r0 + k] || addRow();
+        if (!row) { dropped++; return; }
+        cells.forEach((v, j) => { if (c0 + j < COLS.length) row.querySelector("." + COLS[c0 + j]).value = v.trim(); });
+    });
+    renumber();
+    if (dropped) toast(`Only the first ${MAX_LINES} lines were added — send the other ${dropped} as a second list.`);
+    else toast(`${data.length} line${data.length === 1 ? "" : "s"} added`);
+}
+gridBody.addEventListener("paste", e => {
+    const t = (e.clipboardData || window.clipboardData).getData("text");
+    if (!/[\t\n]/.test(t.trim())) return;
+    e.preventDefault(); applyPaste(e.target, t);
+});
+gridBody.addEventListener("input", renumber);
+gridBody.addEventListener("click", e => {
+    if (!e.target.classList.contains("x")) return;
+    const tr = e.target.closest("tr");
+    if (gridBody.children.length > 1) tr.remove(); else COLS.forEach(c => { tr.querySelector("." + c).value = ""; });
+    renumber();
+});
+gridBody.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || !e.target.matches("input")) return;
+    e.preventDefault();
+    const tr = e.target.closest("tr"), cls = COLS.find(c => e.target.classList.contains(c));
+    const next = tr.nextElementSibling || addRow();
+    if (next) next.querySelector("." + cls).focus();
+});
+$("#btn-add").addEventListener("click", () => { const tr = addRow(); if (tr) tr.querySelector(".g-desc").focus(); });
+$("#btn-clear").addEventListener("click", () => {
+    if (filledRows().length && !confirm("Clear the whole list?")) return;
+    gridBody.innerHTML = ""; for (let i = 0; i < START_ROWS; i++) addRow();
+    resetReview(); renumber();
+});
+
+/* ---------------- Step 2: check ---------------- */
+function resetReview() {
+    lines = []; dirtyNames = false; prepared = false;
+    ["#step2", "#step3", "#step4"].forEach(s => $(s).classList.add("hidden"));
+}
+function newLine(n, raw, costText, supCode) {
+    const t = tidyName(raw);
+    return { n, raw, name: t.name, tidyNotes: t.notes, costText, cost: parseCost(costText), supCode, checkedName: null, match: null, decision: "new", sub: "", suggested: "", removed: false };
+}
+function runChecksFor(line) {
+    line.match = findMatches(line.name);
+    line.checkedName = line.name;
+    line.suggested = suggestSub(line.match.neighbours);
+    line.sub = line.suggested;
+    const m = line.match;
+    line.decision = (m.cls === "exact" || m.cls === "likely") ? "use:" + m.matches[0].i : "new";
+}
+async function runCheck() {
+    if (!$("#supplier").value.trim()) { toast("Add the supplier name first"); $("#supplier").focus(); return; }
+    const rows = filledRows();
+    if (!rows.length) return;
+    $("#btn-check").disabled = true;
+    lines = rows.map((tr, i) => { const v = rowVals(tr); return newLine(i + 1, v[0], v[1], v[2]); });
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].name) runChecksFor(lines[i]);
+        if (i % 3 === 2) { $("#progress").textContent = `Checking ${i + 1} of ${lines.length}…`; await nextTick(); }
+    }
+    $("#progress").textContent = "";
+    $("#btn-check").disabled = false;
+    dirtyNames = false; prepared = false;
+    $("#step2").classList.remove("hidden"); $("#step3").classList.remove("hidden"); $("#step4").classList.add("hidden");
+    renderReview();
+    $("#step2").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+async function recheck() {
+    const todo = lines.filter(l => l.name !== l.checkedName);
+    for (let i = 0; i < todo.length; i++) { todo[i].tidyNotes = []; if (todo[i].name) runChecksFor(todo[i]); if (i % 3 === 2) await nextTick(); }
+    dirtyNames = false;
+    renderReview();
+    toast(todo.length ? `Re-checked ${todo.length} line${todo.length === 1 ? "" : "s"}` : "Nothing had changed");
+}
+
+function liveLines() { return lines.filter(l => !l.removed); }
+function lineState(l) {
+    // level: ok < warn (worth a look) < todo (you still need to choose something) < bad (something is wrong)
+    // todo and bad both stop the email being prepared; warn never does.
+    const rank = { ok: 0, warn: 1, todo: 2, bad: 3 };
+    const msgs = []; let level = "ok";
+    const raise = lv => { if (rank[lv] > rank[level]) level = lv; };
+    const say = (kind, t) => msgs.push([kind, t]);
+    if (!l.name) { raise("bad"); say("bad", "Needs a description."); }
+    if (isNaN(l.cost)) { raise("bad"); say("bad", "Cost needed (a number, e.g. 7.02)."); }
+    else if (l.cost === 0) { raise("warn"); say("warn", "Cost is 0 — is that right?"); }
+    const useIdx = l.decision.startsWith("use:") ? +l.decision.slice(4) : null;
+    if (useIdx === null && l.name && !l.sub) raise("todo");   // the amber "Choose" chip + highlighted dropdown say it
+    if (l.name && l.match) {
+        const k = l.match.key;
+        const first = liveLines().find(o => o !== l && o.match && o.match.key === k && k !== "" && o.n < l.n);
+        if (first) { raise("bad"); say("bad", `Same item as line ${first.n} in this list.`); }
+    }
+    if (l.match && l.name === l.checkedName) {
+        const c = l.match.cls;
+        if (useIdx !== null) say("", c === "exact" ? "Already in the catalogue — using the existing code. Change this if it's really a different item." : "Looks like an existing product — using it. Change this if it's really a different item.");
+        else {
+            if (c === "exact" || c === "likely") { raise("warn"); say("warn", "You've chosen to create this even though a match was found."); }
+            else if (c === "possible") { raise("warn"); say("warn", "Same size item already exists — is it the same product?"); }
+            nameHints(l.name).forEach(h => say("", "Tip: " + h));
+        }
+    }
+    if (l.name !== l.checkedName) { raise("warn"); say("warn", "Name edited — press Re-check."); }
+    let label = "New", chip = "ok";
+    if (level === "bad") { label = "Fix"; chip = "bad"; }
+    else if (level === "todo") { label = "Choose"; chip = "warn"; }
+    else if (level === "warn") { label = "Check"; chip = "warn"; }
+    else if (useIdx !== null) { label = "Exists"; chip = "ok"; }
+    return { level, msgs, label, chip, useIdx, blocking: level === "bad" || level === "todo" };
+}
+function decisionOptions(l) {
+    const opts = [`<option value="new">Create as a NEW item</option>`];
+    (l.match ? l.match.matches : []).forEach(m => {
+        const p = products[m.i];
+        const txt = `Use ${p.code} — ${p.name}${p.active ? "" : " (inactive – reactivate)"}`;
+        opts.push(`<option value="use:${m.i}">${escapeHtml(txt.length > 90 ? txt.slice(0, 88) + "…" : txt)}</option>`);
+    });
+    return opts.join("");
+}
+function rowHtml(l, i) {
+    return `<td class="n">${l.n}</td>
+        <td class="status"></td>
+        <td><textarea class="r-name" rows="1" maxlength="200" spellcheck="false">${escapeHtml(l.name)}</textarea>
+            ${l.tidyNotes.length ? `<div class="orig" title="${escapeAttr("You entered: " + l.raw + " — " + l.tidyNotes.join("; "))}">Tidied: ${escapeHtml(l.tidyNotes.join("; "))} (you entered: ${escapeHtml(l.raw)})</div>` : ""}
+            <div class="msgs"></div></td>
+        <td class="rcost">${isNaN(l.cost) ? escapeHtml(l.costText || "—") : l.cost.toFixed(2)}</td>
+        <td class="sub"><select class="r-sub">${subOptionsHtml}</select><div class="sugg"></div></td>
+        <td class="dec"><select class="r-dec">${decisionOptions(l)}</select><div class="also"></div></td>
+        <td class="rm"><button type="button" class="x r-rm" tabindex="-1" title="Remove this line">✕</button></td>`;
+}
+function renderReview() {
+    const body = $("#review-body"); body.innerHTML = "";
+    lines.forEach((l, i) => {
+        if (l.removed) return;
+        const tr = document.createElement("tr"); tr.dataset.i = i; tr.innerHTML = rowHtml(l, i);
+        body.appendChild(tr);
+        tr.querySelector(".r-sub").value = l.sub;
+        tr.querySelector(".r-dec").value = l.decision;
+        paintRow(tr, l);
+        autoGrow(tr.querySelector(".r-name"));
+    });
+    updateSummary();
+}
+function autoGrow(el) { el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px"; }
+function paintRow(tr, l) {
+    const s = lineState(l);
+    tr.className = "state-" + (s.level === "todo" ? "warn" : s.level);
+    tr.querySelector(".status").innerHTML = `<span class="chip ${s.chip}">${s.label}</span>`;
+    tr.querySelector(".msgs").innerHTML = s.msgs.map(([k, t]) => `<div class="${k ? "m-" + k : ""}">${escapeHtml(t)}</div>`).join("");
+    const subSel = tr.querySelector(".r-sub");
+    subSel.disabled = s.useIdx !== null;
+    subSel.classList.toggle("need", s.level === "todo");
+    tr.querySelector(".sugg").textContent = s.useIdx === null && l.suggested && l.sub === l.suggested ? "suggested from similar items" : (s.useIdx !== null ? "not needed — already exists" : "");
+    // Show what we found right under the dropdown, so nobody has to open it to see the codes.
+    const also = tr.querySelector(".also");
+    const found = (s.useIdx === null && l.match && l.name === l.checkedName) ? l.match.matches.slice(0, 2) : [];
+    const alsoLabel = { exact: "Already in the catalogue:", likely: "Already in the catalogue:", possible: "Very similar (same size):", similar: "Similar items (other sizes or types):" }[l.match && l.match.cls] || "Similar items:";
+    also.innerHTML = found.length
+        ? alsoLabel + found.map(m => { const p = products[m.i]; const t = `${p.code} ${p.name}${p.active ? "" : " (inactive)"}`; return `<div title="${escapeAttr(t)}">${escapeHtml(t)}</div>`; }).join("")
+        : "";
+}
+function updateSummary() {
+    // Every line is counted exactly once, so the pills add up to the total.
+    const live = liveLines(); const c = { New: 0, Exists: 0, Check: 0, Choose: 0, Fix: 0 };
+    live.forEach(l => { c[lineState(l).label]++; });
+    const todo = c.Choose + c.Fix;
+    $("#summary").innerHTML =
+        `<span class="pill">${live.length} line${live.length === 1 ? "" : "s"}</span>` +
+        `<span class="pill ok">${c.New} new</span>` +
+        `<span class="pill ok">${c.Exists} already exist</span>` +
+        (c.Check ? `<span class="pill warn">${c.Check} worth a look</span>` : "") +
+        (todo ? `<span class="pill bad">${todo} still to finish</span>` : "");
+    $("#recheck-note").textContent = live.some(l => l.name !== l.checkedName) ? "You've edited some names — press Re-check." : "";
+}
+$("#review-body").addEventListener("input", e => {
+    if (!e.target.classList.contains("r-name")) return;
+    const tr = e.target.closest("tr"), l = lines[+tr.dataset.i];
+    l.name = e.target.value.toUpperCase().replace(/\s+/g, " ").trim();
+    autoGrow(e.target);
+    paintRow(tr, l); updateSummary();
+});
+$("#review-body").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList.contains("r-name")) { e.preventDefault(); e.target.blur(); } });
+$("#review-body").addEventListener("change", e => {
+    const tr = e.target.closest("tr"); if (!tr) return; const l = lines[+tr.dataset.i];
+    if (e.target.classList.contains("r-sub")) l.sub = e.target.value;
+    if (e.target.classList.contains("r-dec")) l.decision = e.target.value;
+    paintRow(tr, l); updateSummary();
+});
+$("#review-body").addEventListener("click", e => {
+    if (!e.target.classList.contains("r-rm")) return;
+    const tr = e.target.closest("tr"); lines[+tr.dataset.i].removed = true; tr.remove(); updateSummary();
+});
+$("#review-body").addEventListener("focusout", e => { if (e.target.classList && e.target.classList.contains("r-name")) { const tr = e.target.closest("tr"); e.target.value = lines[+tr.dataset.i].name; } });
+$("#btn-recheck").addEventListener("click", recheck);
+$("#btn-check").addEventListener("click", runCheck);
+
+/* ---------------- Step 3/4: build the output ---------------- */
+function details() {
+    return {
+        name: $("#req-name").value.trim(), email: $("#req-email").value.trim(), postcode: $("#req-postcode").value.trim(),
+        contract: $("#req-contract").value.trim(), comments: $("#req-comments").value.trim(), supplier: $("#supplier").value.trim(),
+        bulk: $("#d-bulk").value.trim(), sla: $("#d-sla").value.trim(), cutoff: $("#d-cutoff").value.trim(),
+        rate: $("#d-rate").value, transport: $("#d-transport").value.trim() || "0",
+    };
+}
+function blockers() {
+    const d = details(), out = [];
+    const live = liveLines();
+    if (!live.length) out.push("There are no lines left in the list.");
+    if (live.some(l => l.name !== l.checkedName)) out.push("You've edited some names — press Re-check first.");
+    const bad = live.filter(l => lineState(l).blocking).map(l => l.n);
+    if (bad.length) out.push(`Finish the line${bad.length === 1 ? "" : "s"} marked Fix or Choose: ${bad.join(", ")}.`);
+    if (!d.name) out.push("Add your name.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email)) out.push("Add a valid email address.");
+    if (!d.postcode) out.push("Add the site postcode.");
+    if (!d.contract) out.push("Add the contract number.");
+    if (!d.supplier) out.push("Add the supplier name (step 1).");
+    return out;
+}
+function buildOutput() {
+    const d = details(), live = liveLines();
+    const items = live.map(l => {
+        const s = lineState(l); const ex = s.useIdx !== null ? products[s.useIdx] : null;
+        return { l, ex, action: !ex ? "NEW" : (ex.active ? "USE EXISTING - ADD SUPPLIER PRICE" : "REACTIVATE EXISTING - ADD SUPPLIER PRICE") };
+    });
+    const nNew = items.filter(x => !x.ex).length, nEx = items.length - nNew;
+    const subject = nNew
+        ? `[STOCK - NEW MULTIPLE] ${items.length} items requested by ${d.name} (BM list)`
+        : `[STOCK - MULTIPLE] ${items.length} products requested by ${d.name} (BM list)`;
+    const catOf = sub => (subList.find(s => s.sub === sub) || {}).category || "BUILDING MATERIALS";
+
+    const T = [];
+    T.push(`BUILDING MATERIALS LIST REQUEST - ${items.length} lines (${nNew} new, ${nEx} existing)`);
+    T.push(`Vertical: ${VERTICAL}`);
+    T.push(`Requested by: ${d.name} (${d.email})`);
+    T.push(`Site postcode: ${d.postcode}`);
+    T.push(`Contract number: ${d.contract}`);
+    T.push(`Supplier: ${d.supplier}`);
+    if (nNew) T.push(`Applied to new items: Bulk load ${d.bulk} | SLA ${d.sla} | Cut off ${d.cutoff} | Rate structure ${d.rate} | Transport cost ${d.transport}`);
+    if (d.comments) T.push(`Comments: ${d.comments}`);
+    const nl = items.filter(x => !x.ex);
+    if (nl.length) {
+        T.push("", `NEW ITEMS (${nl.length})`);
+        nl.forEach(x => T.push(`${x.l.n}. ${x.l.name} | ${catOf(x.l.sub)} / ${x.l.sub} | cost ${x.l.cost.toFixed(2)}${x.l.supCode ? " | supplier code " + x.l.supCode : ""}`));
+    }
+    const el = items.filter(x => x.ex);
+    if (el.length) {
+        T.push("", `EXISTING PRODUCTS - ADD / UPDATE SUPPLIER PRICE (${el.length})`);
+        el.forEach(x => T.push(`${x.l.n}. ${x.ex.code} ${x.ex.name}${x.ex.active ? "" : " [INACTIVE - reactivate]"} | cost ${x.l.cost.toFixed(2)}${x.l.supCode ? " | supplier code " + x.l.supCode : ""}`));
+    }
+    T.push("", "The same details are in the attached CSV.");
+    const body = T.join("\n");
+
+    const head = ["Line", "Action", "Stock Name", "Existing Stock Code", "Vertical", "Category", "Sub Category", "Bulk Load", "SLA", "Cutoff Time", "Rate Structure", "Supplier Name", "Supplier Stock Code", "Cost", "Transport Cost", "Original Description", "Requested By", "Requester Email", "Site Postcode", "Contract Number", "Comments"];
+    const rows = [head].concat(items.map(x => {
+        const n = !x.ex;
+        return [x.l.n, x.action, n ? x.l.name : x.ex.name, n ? "" : x.ex.code, VERTICAL, n ? catOf(x.l.sub) : "", n ? x.l.sub : "", n ? d.bulk : "", n ? d.sla : "", n ? d.cutoff : "", n ? d.rate : "", d.supplier, x.l.supCode, x.l.cost.toFixed(2), n ? d.transport : "", x.l.raw, d.name, d.email, d.postcode, d.contract, d.comments];
+    }));
+    return { subject, body, csv: toCSV(rows), nNew, nEx, total: items.length, d };
+}
+let output = null;
+function prepare() {
+    const b = blockers();
+    $("#blockers").innerHTML = b.map(escapeHtml).join("<br>");
+    if (b.length) { $("#blockers").scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+    output = buildOutput(); prepared = true;
+    const fullMailto = mailtoUrl(output.subject, output.body);
+    const tooLong = fullMailto.length > MAILTO_SAFE_LENGTH;
+    const openMailto = tooLong ? mailtoUrl(output.subject, `BM list request - ${output.total} lines. Details are in the attached CSV, and also copied to your clipboard - press Ctrl+V here to paste them.`) : fullMailto;
+    const web = "https://outlook.office.com/mail/deeplink/compose?to=" + encodeURIComponent(RECIPIENT) + "&subject=" + encodeURIComponent(output.subject) + "&body=" + encodeURIComponent(tooLong ? "Paste the request details here (Ctrl+V)." : output.body);
+    $("#out-summary").textContent = `${output.total} line${output.total === 1 ? "" : "s"} ready: ${output.nNew} new, ${output.nEx} using existing codes.`;
+    const a = $("#btn-open-email"); a.href = openMailto; a.dataset.long = tooLong ? "1" : "";
+    $("#btn-open-web").href = web; $("#btn-open-web").dataset.long = tooLong ? "1" : "";
+    $("#out-note").textContent = tooLong
+        ? "Tip: download the CSV first and attach it to the email. The details are also copied for you when you click Open email — press Ctrl+V in the message to paste them. Nothing is sent until you press Send in Outlook."
+        : "Tip: download the CSV and attach it to the email, or just send the list in the message. Nothing is sent until you press Send in Outlook.";
+    $("#out-preview").textContent = `To: ${RECIPIENT}\nSubject: ${output.subject}\n\n${output.body}`;
+    $("#step4").classList.remove("hidden");
+    $("#step4").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+const mailtoUrl = (s, b) => `mailto:${RECIPIENT}?subject=${encodeURIComponent(s)}&body=${encodeURIComponent(b)}`;
+function copyText(text, ok) {
+    const fb = () => { const ta = document.createElement("textarea"); ta.value = text; ta.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(ta); ta.select(); let r = false; try { r = document.execCommand("copy"); } catch (e) { } document.body.removeChild(ta); toast(r ? ok : "Couldn't copy automatically — use 'See the email text' and select it."); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => toast(ok)).catch(fb); else fb();
+}
+function downloadCSV() {
+    const d = output.d, stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "").replace(/^(\d{8})(\d{4})$/, "$1_$2");
+    const safe = (d.name || "request").replace(/[^A-Za-z0-9]+/g, "_").slice(0, 30);
+    const blob = new Blob([output.csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = `bm_list_request_${stamp}_${safe}.csv`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast("CSV downloaded — attach it to the email");
+}
+$("#btn-prepare").addEventListener("click", prepare);
+$("#btn-csv").addEventListener("click", downloadCSV);
+$("#btn-copy").addEventListener("click", () => copyText(`To: ${RECIPIENT}\nSubject: ${output.subject}\n\n${output.body}`, "Email text copied"));
+["#btn-open-email", "#btn-open-web"].forEach(id => $(id).addEventListener("click", e => { if (e.currentTarget.dataset.long) copyText(output.body, "Details copied — press Ctrl+V in the email to paste them"); }));
+$("#btn-back").addEventListener("click", () => { $("#step4").classList.add("hidden"); $("#step1").scrollIntoView({ behavior: "smooth" }); });
+
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 3800); }
+window.addEventListener("beforeunload", e => { if (filledRows().length && !prepared) { e.preventDefault(); e.returnValue = ""; } });
+
+for (let i = 0; i < START_ROWS; i++) addRow();
+renumber();
+loadAll().then(() => renumber()).catch(err => {
+    console.error(err);
+    $("#meta").textContent = "";
+    const el = $("#load-error"); el.textContent = "Couldn't load the Building Materials catalogue (" + err.message + "). Please tell the catalogue team.";
+    el.classList.remove("hidden");
+});
+</script>
+</body>
+</html>
