@@ -347,6 +347,8 @@
     .field textarea { resize: vertical; min-height: 60px; }
     .field-row { display: flex; gap: 10px; }
     .field-row .field { flex: 1; }
+    .tidy-note { display: none; font-size: 12px; color: var(--subtext); margin-top: 6px; line-height: 1.45; }
+    .tidy-note a { color: var(--primary, inherit); text-decoration: underline; cursor: pointer; }
     .modal-actions {
         display: flex;
         justify-content: flex-end;
@@ -714,11 +716,29 @@ async function loadAliases() {
 // replacing free-text category entry with the actual standardised taxonomy.
 let categoryMap = {}; // { "ACCESS": ["ACCESS SAFETY", "LADDERS & STEPS", ...], ... }
 
+// Splits one CSV line the proper way: a comma inside "quotes" belongs to the value, so a
+// sub-category like "CABLE REELS, SITE LIGHTS & TRANSFORMERS" stays in one piece.
+function splitCsvLine(line) {
+    const out = []; let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (q) {
+            if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+            else if (c === '"') q = false;
+            else cur += c;
+        } else if (c === '"') q = true;
+        else if (c === ",") { out.push(cur); cur = ""; }
+        else cur += c;
+    }
+    out.push(cur);
+    return out;
+}
+
 function parseCategoryMapCSV(text) {
-    const lines = text.trim().split("\n").slice(1); // skip header
+    const lines = text.trim().split(/\r?\n/).slice(1); // skip header
     const map = {};
     lines.forEach(line => {
-        const [category, subCategory] = line.split(",").map(s => (s || "").trim());
+        const [category, subCategory] = splitCsvLine(line).map(s => (s || "").trim());
         if (!category || !subCategory) return;
         if (!map[category]) map[category] = [];
         map[category].push(subCategory);
@@ -839,6 +859,7 @@ async function loadData() {
         const lookups = data.lookups || {}; // vertical/category_l1/category_l2 are indices into these, to cut repeated-string bloat
         const aliasLookup = await loadAliases(); // optional manual overlay — see search_aliases.csv
         categoryMap = await loadCategoryMap(); // for the New/Clone form dropdowns
+        loadNameRules(); // optional naming rules - not awaited, the page works without it
 
         allProducts = (data.products || []).map(row => {
             const obj = {};
@@ -1712,7 +1733,163 @@ function openModal(type, product) {
 
     overlay.classList.add("show");
     wireCategoryDropdown(form);
+    form.onchange = (type === "new" || type === "clone") ? onNameFieldChange : null;
+    form.onclick = (type === "new" || type === "clone") ? onNameFieldClick : null;
     form.onsubmit = (e) => { e.preventDefault(); submitRequest(type, form); };
+}
+
+/* ---------- Tidying new product names to our naming standard ----------
+   Runs when someone finishes typing the description on a New or Clone request. It only does
+   things that are safe to do mechanically (uppercase, tight units, no commas, HIREPACK, the
+   standard noun for a machine, the item name first with brand in brackets at the end). The
+   person can always change the result - their edit is left alone - or put back exactly what
+   they typed. The original wording goes in the email so it can be added as an alias.
+   Extra rules (brands, standard nouns) live in name_rules.json, not in this code. */
+const NAME_RULES_URL = "name_rules.json";
+const NAME_FIXES = [
+    [/\bEN1507\b/g, "EN1057", "EN1507 → EN1057 (the copper tube standard)"],
+    [/(\d),(\d{3})\b/g, "$1$2", "removed comma from a number"],
+    [/\bHIRE PACK\b/g, "HIREPACK", "HIRE PACK → HIREPACK"],
+];
+let HIRE_FIXES = [];   // only used when the vertical is Hire (from name_rules.json)
+let NAME_BRANDS = ["DEWALT", "MAKITA", "MILWAUKEE", "BOSCH", "STANLEY", "HILTI", "FESTOOL", "RIDGID", "IRWIN", "FAITHFULL", "SIKA", "EVERBUILD", "UNIBOND", "KNAUF", "MARSHALLTOWN"];
+// a size/spec word that can sit at the front of a name: 22MM, 3.0MM, 1.22, M660, 15MMX3M
+const LEAD_SPEC = /^(?:\d+(?:\.\d+)?(?:MM|CM|M|KG|G|L|V|W|A|KW|KVA|DEG|MTR|MTRS|MIC|MICRON)?|\d+(?:\.\d+)?(?:MM|M)?X\d+(?:\.\d+)?(?:MM|M)?|[A-Z]\d{1,4})$/;
+// power words: a size that led the name goes in front of these (POWER FLOAT 900MM PETROL)
+const POWER_WORD = /^(?:PETROL|DIESEL|ELECTRIC|CORDLESS|BATTERY|AIR|HYDRAULIC|PNEUMATIC|\d+V|\d+(?:\.\d+)?KW)$/;
+const NOMINAL_INCH_MM = { 6: 150, 9: 230, 12: 300 };   // from the concreting naming standard
+
+function loadNameRules() {
+    fetch(NAME_RULES_URL, { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(r => {
+        if (!r) return;
+        (r.brands || []).forEach(b => { b = String(b).toUpperCase().trim(); if (b && !NAME_BRANDS.includes(b)) NAME_BRANDS.push(b); });
+        const mk = x => { try { return [new RegExp(x.find, "g"), x.replace ?? "", x.note || (x.find + " → " + (x.replace ?? ""))]; } catch (e) { console.warn("Bad naming rule skipped:", x); return null; } };
+        (r.replacements || []).forEach(x => { const f = mk(x); if (f) NAME_FIXES.push(f); });
+        (r.hire_replacements || []).forEach(x => { const f = mk(x); if (f) HIRE_FIXES.push(f); });
+    }).catch(() => { /* optional file */ });
+}
+
+function tidyProductName(raw, vertical) {
+    const notes = [], hints = [];
+    const isHire = vertical === "Hire";
+    let s = String(raw || "").replace(/\s+/g, " ").trim().toUpperCase();
+    const before = s;
+    const lead = s.match(/^[\s*@$#!~^&+]+/);
+    if (lead) { s = s.slice(lead[0].length).trim(); notes.push("removed the leading symbols"); }
+    const fixes = isHire ? NAME_FIXES.concat(HIRE_FIXES) : NAME_FIXES;
+    fixes.forEach(([re, rep, label]) => { re.lastIndex = 0; const hit = s.match(re); if (hit) { re.lastIndex = 0; s = s.replace(re, rep); notes.push(label.startsWith("→") ? hit[0] + " " + label : label); } });
+    const mOf = s.match(/^(?:M|MTRS?|METRES?) OF\s+/);
+    if (mOf) {
+        s = s.slice(mOf[0].length);
+        if (!/\bPER\s*\/?\s*(M|MTRS?|METRES?)\b/.test(s)) s += " PER METRE";
+        notes.push('"M OF" moved to the end as PER METRE');
+    }
+    const noCommas = s.replace(/\s*,\s*/g, " ");
+    if (noCommas !== s) { s = noCommas; notes.push("removed commas"); }
+    const tight = s.replace(/(\d)\s+(MM|CM|M|KG|G|L|V|W|A|KW|KVA)\b/g, "$1$2").replace(/(\d)GM\b/g, "$1G").replace(/(\d)MTRS?\b/g, "$1M");
+    if (tight !== s) { s = tight; notes.push("units tidied (e.g. 22 MM → 22MM)"); }
+    if (isHire) {
+        // hire machines: inches become mm (the nominal sizes we use), and the weight comes out of the name
+        s = s.replace(/(?<![\d.])(6|9|12)\s?(?:"|''|INCH(?:ES)?)(?![A-Z0-9])/g, (m, n) => { notes.push(`${n} INCH → ${NOMINAL_INCH_MM[n]}MM (nominal)`); return NOMINAL_INCH_MM[n] + "MM"; });
+        const noWeight = s.replace(/(?:^|\s)\d+(?:\.\d+)?KG(?![A-Z0-9])/g, "").trim();
+        if (noWeight !== s && /[A-Z]{3,}/.test(noWeight)) { s = noWeight; notes.push("removed the weight (weights go in the description)"); }
+    }
+    s = s.replace(/\s{2,}/g, " ").trim();
+    // brand goes in brackets at the end (first one found; left alone if already in brackets)
+    for (const b of NAME_BRANDS) {
+        const re = new RegExp("(^|\\s)" + b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=$|\\s)");
+        if (re.test(s) && !s.includes("(" + b + ")")) {
+            const rest = s.replace(re, "$1").replace(/\s{2,}/g, " ").trim();
+            if (/[A-Z]{3,}/.test(rest)) { s = rest + " (" + b + ")"; notes.push(b + " moved to the end in brackets"); }
+            break;
+        }
+    }
+    // the item name leads: a size/spec at the front moves behind the name (22MM COPPER TUBE → COPPER TUBE 22MM)
+    const tk = s.split(" "); let i = 0;
+    while (i < tk.length && (LEAD_SPEC.test(tk[i]) || (tk[i] === "X" && i > 0 && LEAD_SPEC.test(tk[i + 1] || "")))) i++;
+    const leadTk = tk.slice(0, i), restTk = tk.slice(i);
+    if (i > 0 && leadTk.some(t => /[A-Z]/.test(t) && t !== "X") && restTk.some(t => /^[A-Z][A-Z&-]{2,}$/.test(t))) {
+        let at = restTk.findIndex((t, k) => k > 0 && (POWER_WORD.test(t) || /\d/.test(t) || t.startsWith("(")));   // behind the item name, before its other specs / brand
+        if (at < 0) at = restTk.length;
+        s = restTk.slice(0, at).concat(leadTk, restTk.slice(at)).join(" ");
+        notes.push("size moved behind the item name so the name leads");
+    }
+    if (/^\d/.test(s)) hints.push("Names should start with what the item is (e.g. COPPER TUBE 35MM…), not a size.");
+    if (/\d\s*(?:"|''|INCH(?:ES)?\b)/.test(s)) hints.push("There's a size in inches — add the MM size too where there is one (leave pipe/thread sizes as they are).");
+    if (isHire && /\bELECTRIC\b/.test(s) && !/\b\d+V\b/.test(s)) hints.push("ELECTRIC needs a voltage (110V / 240V / 415V).");
+    return { name: s, notes, hints, changed: s !== before };
+}
+
+// ---- wiring on the New / Clone forms ----
+function nameFieldVertical(form, el) {
+    const m = el.name.match(/^newitem_description_(\d+)$/);
+    if (m) { const v = form.querySelector(`[name="newitem_vertical_${m[1]}"]`); return v ? v.value : ""; }
+    const v = form.querySelector('[name="vertical"]');
+    return v ? v.value : "";
+}
+function nameNoteParts(el) {
+    const field = el.closest(".field");
+    let note = field.querySelector(".tidy-note");
+    if (!note) { note = document.createElement("div"); note.className = "tidy-note"; field.appendChild(note); }
+    let orig = field.querySelector("input.tidy-original");
+    if (!orig) {
+        orig = document.createElement("input"); orig.type = "hidden"; orig.className = "tidy-original";
+        const m = el.name.match(/^newitem_description_(\d+)$/);
+        orig.name = m ? `newitem_original_description_${m[1]}` : "original_description";
+        field.appendChild(orig);
+    }
+    return { note, orig };
+}
+function applyNameTidy(el, raw, form) {
+    const { note, orig } = nameNoteParts(el);
+    const t = tidyProductName(raw, nameFieldVertical(form, el));
+    el.dataset.raw = raw; el.dataset.tidied = t.name; delete el.dataset.manual;
+    el.value = t.name;
+    orig.value = t.changed ? raw : "";
+    const bits = [];
+    if (t.changed) bits.push(`Tidied to our naming standard: ${escapeHtml(t.notes.join("; ") || "tidied")}. You typed: <em>${escapeHtml(raw)}</em> — <a href="#" class="tidy-undo">put back what I typed</a>`);
+    t.hints.forEach(h => bits.push(escapeHtml(h)));
+    note.innerHTML = bits.join("<br>");
+    note.style.display = bits.length ? "block" : "none";
+}
+function resetNameTidy(el) {
+    const { note, orig } = nameNoteParts(el);
+    delete el.dataset.raw; delete el.dataset.tidied; delete el.dataset.manual;
+    orig.value = ""; note.innerHTML = ""; note.style.display = "none";
+}
+function onNameFieldChange(e) {
+    const form = e.currentTarget, el = e.target;
+    if (el.matches('input[name^="newitem_description_"], input[name="new_description"]')) {
+        const v = el.value.trim();
+        if (!v) { resetNameTidy(el); return; }
+        const wasChanged = el.dataset.tidied !== undefined && el.dataset.tidied !== el.dataset.raw;
+        // an edit of our tidied name (most words still the same) is left alone; a completely new name is tidied afresh
+        const words = x => x.toUpperCase().split(/\s+/).filter(Boolean);
+        const prev = words(el.dataset.tidied || ""), now = words(v);
+        const sameWords = now.filter(w => prev.includes(w)).length / Math.max(prev.length, now.length, 1);
+        if (wasChanged && v !== el.dataset.tidied && v !== el.dataset.raw && sameWords >= 0.5) {
+            el.dataset.manual = "1";
+            const { note, orig } = nameNoteParts(el);
+            orig.value = el.dataset.raw || "";
+            note.innerHTML = "You've edited this name, so we've left it as you wrote it.";
+            note.style.display = "block";
+            return;
+        }
+        applyNameTidy(el, v, form);
+    } else if (el.matches('select[name^="newitem_vertical_"]')) {
+        const idx = el.name.match(/_(\d+)$/)[1];
+        const input = form.querySelector(`[name="newitem_description_${idx}"]`);
+        if (input && input.value.trim() && !input.dataset.manual) applyNameTidy(input, input.dataset.raw || input.value.trim(), form);
+    }
+}
+function onNameFieldClick(e) {
+    if (!e.target.classList || !e.target.classList.contains("tidy-undo")) return;
+    e.preventDefault();
+    const el = e.target.closest(".field").querySelector('input[name^="newitem_description_"], input[name="new_description"]');
+    if (!el) return;
+    const { note, orig } = nameNoteParts(el);
+    el.value = el.dataset.raw || el.value; el.dataset.manual = "1"; orig.value = "";
+    note.innerHTML = "Using exactly what you typed.";
 }
 
 function submitRow() {
@@ -1951,7 +2128,7 @@ function finalizeSubmit(type, data) {
         body = `Products requested:\n${itemLines}\n\n${otherLines}`;
     } else if (type === "new") {
         const itemIndices = findNewItemIndices(data);
-        const itemFieldNames = ["description", "vertical", "category", "sub_category", "bulk_load", "sla", "cutoff_time", "supplier_name", "cost", "rate_structure", "transport_cost", "supplier_stock_code"];
+        const itemFieldNames = ["description", "original_description", "vertical", "category", "sub_category", "bulk_load", "sla", "cutoff_time", "supplier_name", "cost", "rate_structure", "transport_cost", "supplier_stock_code"];
 
         if (itemIndices.length <= 1) {
             // Single item — remapped back to the original flat field names (new_description,
@@ -1966,7 +2143,7 @@ function finalizeSubmit(type, data) {
                 flatData[m[1] === "description" ? "new_description" : m[1]] = value;
             });
             subject = `[STOCK - NEW] ${flatData.new_description}`;
-            const bodyLines = Object.entries(flatData).map(([key, value]) => {
+            const bodyLines = Object.entries(flatData).filter(([key, value]) => !(key === "original_description" && !value)).map(([key, value]) => {
                 const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
                 return `${label}: ${value}`;
             });
@@ -1977,9 +2154,10 @@ function finalizeSubmit(type, data) {
             subject = `[STOCK - NEW MULTIPLE] ${itemIndices.length} items requested by ${data.requester_name}`;
             const itemBlocks = itemIndices.map((idx, n) => {
                 const lines = itemFieldNames.map(f => {
+                    if (f === "original_description" && !data[`newitem_${f}_${idx}`]) return null;   // only shown when we tidied the name
                     const label = f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
                     return `    ${label}: ${data[`newitem_${f}_${idx}`] || ""}`;
-                }).join("\n");
+                }).filter(Boolean).join("\n");
                 return `Item ${n + 1}:\n${lines}`;
             }).join("\n\n");
             const sharedKeys = ["requester_name", "requester_email", "site_postcode", "contract_number", "comments"];
@@ -1995,7 +2173,7 @@ function finalizeSubmit(type, data) {
             supplier: `[STOCK - ADD SUPPLIER] ${data.stock_code} - ${data.stock_name}`,
             clone: `[STOCK - CLONE] from ${data.source_stock_code} - ${data.new_description}`
         };
-        const bodyLines = Object.entries(data).map(([key, value]) => {
+        const bodyLines = Object.entries(data).filter(([key, value]) => !(key === "original_description" && !value)).map(([key, value]) => {
             const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
             return `${label}: ${value}`;
         });

@@ -1,0 +1,25 @@
+{
+  "_help": "Optional extra naming rules for the stock search page. 'brands' are moved to the end of a name in brackets. 'replacements' apply to every vertical; 'hire_replacements' only to Hire. 'find' is a regular expression matched against UPPERCASE names. Add as many as you like - no code change needed. Standard nouns below come from the concreting and sawing & cutting knowledge files.",
+  "brands": [],
+  "replacements": [
+    { "find": "\\bC/W\\b", "replace": "WITH", "note": "C/W → WITH" }
+  ],
+  "hire_replacements": [
+    { "find": "\\bFORWARD AND REVERSE PLATE\\b(.*)$", "replace": "VIBRATING PLATE$1 FORWARD REVERSE", "note": "FORWARD AND REVERSE PLATE → VIBRATING PLATE … FORWARD REVERSE" },
+    { "find": "\\b(?:PLATE COMPACTOR|WACKER PLATE|COMPACTION PLATE)\\b", "replace": "VIBRATING PLATE", "note": "→ VIBRATING PLATE (our standard name)" },
+    { "find": "\\b(?:FWD/RVS|FORWARD AND REVERSE|F&R)(?![A-Z])", "replace": "FORWARD REVERSE", "note": "→ FORWARD REVERSE" },
+    { "find": "\\b(?:POKER VIBRATOR|NEEDLE VIBRATOR)\\b", "replace": "VIBRATING POKER", "note": "→ VIBRATING POKER (our standard name)" },
+    { "find": "\\b(?:POWER FLOAT DISC|FLOAT DISC)\\b", "replace": "POWER FLOAT PAN", "note": "→ POWER FLOAT PAN (our standard name)" },
+    { "find": "\\bPOWER TROWEL\\b", "replace": "POWER FLOAT", "note": "POWER TROWEL → POWER FLOAT" },
+    { "find": "\\b(?:CONCRETE SCARIFIER|FLOOR SCARIFIER)\\b", "replace": "FLOOR PLANER", "note": "→ FLOOR PLANER (our standard name)" },
+    { "find": "\\b(?:REBAR TIER|REBAR TYING MACHINE)\\b", "replace": "REBAR TYING TOOL", "note": "→ REBAR TYING TOOL (our standard name)" },
+    { "find": "\\bJUMPING JACK\\b", "replace": "TRENCH RAMMER", "note": "JUMPING JACK → TRENCH RAMMER" },
+    { "find": "\\bTAMPING BEAM\\b", "replace": "BEAM SCREED", "note": "TAMPING BEAM → BEAM SCREED" },
+    { "find": "\\b(?:WET TILE CUTTER|PORCELAIN SAW)\\b", "replace": "TILE SAW", "note": "→ TILE SAW (our standard name)" },
+    { "find": "\\bBRIDGE TILE SAW\\b", "replace": "TILE SAW BRIDGE", "note": "BRIDGE TILE SAW → TILE SAW BRIDGE" },
+    { "find": "\\bTILE SAW TABLE\\b", "replace": "TILE SAW BENCH", "note": "TILE SAW TABLE → TILE SAW BENCH" },
+    { "find": "\\bSNAP CUTTER TILE\\b", "replace": "TILE CUTTER MANUAL", "note": "SNAP CUTTER TILE → TILE CUTTER MANUAL" },
+    { "find": "\\bDROP SAW\\b", "replace": "MITRE SAW", "note": "DROP SAW → MITRE SAW" },
+    { "find": "\\b(?:METAL|ABRASIVE) CHOP SAW\\b", "replace": "CHOP SAW", "note": "→ CHOP SAW (our standard name)" }
+  ]
+}
