@@ -1754,9 +1754,13 @@ const NAME_FIXES = [
 let HIRE_FIXES = [];   // only used when the vertical is Hire (from name_rules.json)
 let NAME_BRANDS = ["DEWALT", "MAKITA", "MILWAUKEE", "BOSCH", "STANLEY", "HILTI", "FESTOOL", "RIDGID", "IRWIN", "FAITHFULL", "SIKA", "EVERBUILD", "UNIBOND", "KNAUF", "MARSHALLTOWN"];
 // a size/spec word that can sit at the front of a name: 22MM, 3.0MM, 1.22, M660, 15MMX3M
-const LEAD_SPEC = /^(?:\d+(?:\.\d+)?(?:MM|CM|M|KG|G|L|V|W|A|KW|KVA|DEG|MTR|MTRS|MIC|MICRON)?|\d+(?:\.\d+)?(?:MM|M)?X\d+(?:\.\d+)?(?:MM|M)?|[A-Z]\d{1,4})$/;
+const LEAD_SPEC = /^(?:\d+(?:\.\d+)?(?:MM|CM|M|KG|G|L|V|W|A|KW|KWH|KVA|FT|DEG|MTR|MTRS|MIC|MICRON)?|\d+(?:\.\d+)?(?:MM|M)?X\d+(?:\.\d+)?(?:MM|M)?|[A-Z]\d{1,4})$/;
 // power words: a size that led the name goes in front of these (POWER FLOAT 900MM PETROL)
-const POWER_WORD = /^(?:PETROL|DIESEL|ELECTRIC|CORDLESS|BATTERY|AIR|HYDRAULIC|PNEUMATIC|\d+V|\d+(?:\.\d+)?KW)$/;
+const POWER_WORD = /^(?:PETROL|DIESEL|ELECTRIC|CORDLESS|BATTERY|HYBRID|HYDROGEN|BIFUEL|AIR|HYDRAULIC|PNEUMATIC|\d+V|\d+(?:\.\d+)?KW|UNLIMITED|STANDBY|\d+HRS)$/;
+// fuel words that must not lead a hire name (not AIR/HYDRAULIC/BATTERY: those are often part of the item itself)
+const LEADING_FUEL = /^(?:PETROL|DIESEL|ELECTRIC|BIFUEL|SOLAR|CORDLESS)$/;
+// powered access (scissor / boom / AWP): BATTERY, HYBRID and HYDROGEN are power values too (Powered Access briefs)
+const LEADING_FUEL_ACCESS = /^(?:PETROL|DIESEL|ELECTRIC|BIFUEL|HYBRID|HYDROGEN|SOLAR|CORDLESS|BATTERY)$/;
 const NOMINAL_INCH_MM = { 6: 150, 9: 230, 12: 300 };   // from the concreting naming standard
 
 function loadNameRules() {
@@ -1786,12 +1790,13 @@ function tidyProductName(raw, vertical) {
     }
     const noCommas = s.replace(/\s*,\s*/g, " ");
     if (noCommas !== s) { s = noCommas; notes.push("removed commas"); }
-    const tight = s.replace(/(\d)\s+(MM|CM|M|KG|G|L|V|W|A|KW|KVA)\b/g, "$1$2").replace(/(\d)GM\b/g, "$1G").replace(/(\d)MTRS?\b/g, "$1M");
+    const tight = s.replace(/(\d)\s+(MM|CM|M|KG|G|L|V|W|A|KW|KWH|KVA|FT)\b/g, "$1$2").replace(/(\d)GM\b/g, "$1G").replace(/(\d)MTRS?\b/g, "$1M");
     if (tight !== s) { s = tight; notes.push("units tidied (e.g. 22 MM → 22MM)"); }
     if (isHire) {
         // hire machines: inches become mm (the nominal sizes we use), and the weight comes out of the name
         s = s.replace(/(?<![\d.])(6|9|12)\s?(?:"|''|INCH(?:ES)?)(?![A-Z0-9])/g, (m, n) => { notes.push(`${n} INCH → ${NOMINAL_INCH_MM[n]}MM (nominal)`); return NOMINAL_INCH_MM[n] + "MM"; });
-        const noWeight = s.replace(/(?:^|\s)\d+(?:\.\d+)?KG(?![A-Z0-9])/g, "").trim();
+        // breakers are sized by weight (BREAKER 12.5KG 110V), so their weight stays
+        const noWeight = /\bBREAKER\b/.test(s) ? s : s.replace(/(?:^|\s)\d+(?:\.\d+)?KG(?![A-Z0-9])/g, "").trim();
         if (noWeight !== s && /[A-Z]{3,}/.test(noWeight)) { s = noWeight; notes.push("removed the weight (weights go in the description)"); }
     }
     s = s.replace(/\s{2,}/g, " ").trim();
@@ -1814,9 +1819,39 @@ function tidyProductName(raw, vertical) {
         s = restTk.slice(0, at).concat(leadTk, restTk.slice(at)).join(" ");
         notes.push("size moved behind the item name so the name leads");
     }
+    if (isHire) {
+        // fuel/power never leads: PETROL POWER FLOAT 900MM → POWER FLOAT 900MM PETROL, ELECTRIC SCISSOR 29M → SCISSOR 29M ELECTRIC
+        const t2 = s.split(" "); let j = 0;
+        const leadFuel = /\b(?:SCISSOR|BOOM|AWP)\b/.test(s) ? LEADING_FUEL_ACCESS : LEADING_FUEL;
+        while (j < t2.length && leadFuel.test(t2[j])) j++;
+        const fuel = t2.slice(0, j), body = t2.slice(j);
+        if (j > 0 && body.length && /^[A-Z][A-Z&-]{2,}$/.test(body[0])) {
+            let n = 0;
+            while (n < body.length && /^[A-Z][A-Z&-]{2,}$/.test(body[n]) && !POWER_WORD.test(body[n])) n++;   // the item name
+            while (n < body.length && (/\d/.test(body[n]) || body[n] === "X") && !POWER_WORD.test(body[n])) n++; // its size / specs
+            s = body.slice(0, n).concat(fuel, body.slice(n)).join(" ");
+            notes.push(fuel.join(" ") + " moved after the size (power goes after the item name and size)");
+        }
+    }
+    if (isHire && /\bBOOM\b/.test(s)) {
+        // boom type goes after the power, not in front of the noun: ARTICULATED BOOM 8M ELECTRIC → BOOM 8M ELECTRIC ARTICULATED
+        const t3 = s.split(" "), bi = t3.indexOf("BOOM"), ti = t3.findIndex(w => w === "ARTICULATED" || w === "TELESCOPIC");
+        if (bi >= 0 && ti >= 0 && ti < bi) {
+            const type = t3.splice(ti, 1)[0];
+            const pi = t3.findIndex(w => POWER_WORD.test(w));
+            t3.splice(pi >= 0 ? pi + 1 : t3.length, 0, type);
+            s = t3.join(" ");
+            notes.push(type + " moved after the power");
+        }
+    }
     if (/^\d/.test(s)) hints.push("Names should start with what the item is (e.g. COPPER TUBE 35MM…), not a size.");
     if (/\d\s*(?:"|''|INCH(?:ES)?\b)/.test(s)) hints.push("There's a size in inches — add the MM size too where there is one (leave pipe/thread sizes as they are).");
-    if (isHire && /\bELECTRIC\b/.test(s) && !/\b\d+V\b/.test(s)) hints.push("ELECTRIC needs a voltage (110V / 240V / 415V).");
+    const isAccess = isHire && /\b(?:SCISSOR|BOOM|AWP)\b/.test(s);
+    if (isHire && !isAccess && /\bELECTRIC\b/.test(s) && !/\b\d+V\b/.test(s)) hints.push("ELECTRIC needs a voltage (110V / 240V / 415V).");
+    if (isAccess) {   // Powered Access briefs: TYPE + WORKING HEIGHT + POWER (+ detail); all three are required
+        if (!/(?:^|\s)\d{1,2}(?:\.\d)?M(?:\s|$)/.test(s)) hints.push("Add the working height, e.g. 12M.");
+        if (!s.split(" ").some(t => POWER_WORD.test(t))) hints.push("Add the power: DIESEL, ELECTRIC, BATTERY, HYBRID or HYDROGEN.");
+    }
     return { name: s, notes, hints, changed: s !== before };
 }
 

@@ -1,25 +1,243 @@
 {
-  "_help": "Optional extra naming rules for the stock search page. 'brands' are moved to the end of a name in brackets. 'replacements' apply to every vertical; 'hire_replacements' only to Hire. 'find' is a regular expression matched against UPPERCASE names. Add as many as you like - no code change needed. Standard nouns below come from the concreting and sawing & cutting knowledge files.",
+  "_help": "Optional extra naming rules for the stock search page. 'brands' are moved to the end of a name in brackets. 'replacements' apply to every vertical; 'hire_replacements' only to Hire. 'find' is a regular expression matched against UPPERCASE names. Add as many as you like - no code change needed. Standard nouns below come from the concreting, sawing & cutting, Powered Access, Access (ladders / towers), Accommodation, Ventilation, Breaking & Drilling and Power (generators / BESS) knowledge files.",
   "brands": [],
   "replacements": [
-    { "find": "\\bC/W\\b", "replace": "WITH", "note": "C/W → WITH" }
+    {
+      "find": "\\bC/W\\b",
+      "replace": "WITH",
+      "note": "C/W → WITH"
+    }
   ],
   "hire_replacements": [
-    { "find": "\\bFORWARD AND REVERSE PLATE\\b(.*)$", "replace": "VIBRATING PLATE$1 FORWARD REVERSE", "note": "FORWARD AND REVERSE PLATE → VIBRATING PLATE … FORWARD REVERSE" },
-    { "find": "\\b(?:PLATE COMPACTOR|WACKER PLATE|COMPACTION PLATE)\\b", "replace": "VIBRATING PLATE", "note": "→ VIBRATING PLATE (our standard name)" },
-    { "find": "\\b(?:FWD/RVS|FORWARD AND REVERSE|F&R)(?![A-Z])", "replace": "FORWARD REVERSE", "note": "→ FORWARD REVERSE" },
-    { "find": "\\b(?:POKER VIBRATOR|NEEDLE VIBRATOR)\\b", "replace": "VIBRATING POKER", "note": "→ VIBRATING POKER (our standard name)" },
-    { "find": "\\b(?:POWER FLOAT DISC|FLOAT DISC)\\b", "replace": "POWER FLOAT PAN", "note": "→ POWER FLOAT PAN (our standard name)" },
-    { "find": "\\bPOWER TROWEL\\b", "replace": "POWER FLOAT", "note": "POWER TROWEL → POWER FLOAT" },
-    { "find": "\\b(?:CONCRETE SCARIFIER|FLOOR SCARIFIER)\\b", "replace": "FLOOR PLANER", "note": "→ FLOOR PLANER (our standard name)" },
-    { "find": "\\b(?:REBAR TIER|REBAR TYING MACHINE)\\b", "replace": "REBAR TYING TOOL", "note": "→ REBAR TYING TOOL (our standard name)" },
-    { "find": "\\bJUMPING JACK\\b", "replace": "TRENCH RAMMER", "note": "JUMPING JACK → TRENCH RAMMER" },
-    { "find": "\\bTAMPING BEAM\\b", "replace": "BEAM SCREED", "note": "TAMPING BEAM → BEAM SCREED" },
-    { "find": "\\b(?:WET TILE CUTTER|PORCELAIN SAW)\\b", "replace": "TILE SAW", "note": "→ TILE SAW (our standard name)" },
-    { "find": "\\bBRIDGE TILE SAW\\b", "replace": "TILE SAW BRIDGE", "note": "BRIDGE TILE SAW → TILE SAW BRIDGE" },
-    { "find": "\\bTILE SAW TABLE\\b", "replace": "TILE SAW BENCH", "note": "TILE SAW TABLE → TILE SAW BENCH" },
-    { "find": "\\bSNAP CUTTER TILE\\b", "replace": "TILE CUTTER MANUAL", "note": "SNAP CUTTER TILE → TILE CUTTER MANUAL" },
-    { "find": "\\bDROP SAW\\b", "replace": "MITRE SAW", "note": "DROP SAW → MITRE SAW" },
-    { "find": "\\b(?:METAL|ABRASIVE) CHOP SAW\\b", "replace": "CHOP SAW", "note": "→ CHOP SAW (our standard name)" }
+    {
+      "find": "^AGR (.*)$",
+      "replace": "$1 ADVANCE GUARDRAIL",
+      "note": "AGR → ADVANCE GUARDRAIL (moved to the end)"
+    },
+    {
+      "find": "^ANTI[- ]VANDAL (.+? \\d+FT(?: X \\d+FT)?)(.*)$",
+      "replace": "$1 ANTI VANDAL$2",
+      "note": "ANTI VANDAL moved behind the size"
+    },
+    {
+      "find": "^(?:L/DUTY|L/D|LDUTY) (.*)$",
+      "replace": "$1 LIGHT DUTY",
+      "note": "L/D → LIGHT DUTY (moved to the end)"
+    },
+    {
+      "find": "\\bBATTERY (?:STORAGE |ENERGY STORAGE )?UNIT\\b",
+      "replace": "BATTERY ENERGY STORAGE SYSTEM",
+      "note": "→ BATTERY ENERGY STORAGE SYSTEM (our standard name)"
+    },
+    {
+      "find": "\\bBI[ -]?FUEL\\b",
+      "replace": "HYBRID",
+      "note": "BI FUEL → HYBRID (same thing in Powered Access)"
+    },
+    {
+      "find": "\\bSCISSOR LIFT\\b(?! TABLE| TROLLEY)",
+      "replace": "SCISSOR",
+      "note": "SCISSOR LIFT → SCISSOR (our standard name)"
+    },
+    {
+      "find": "\\bBOOM LIFT\\b",
+      "replace": "BOOM",
+      "note": "BOOM LIFT → BOOM (our standard name)"
+    },
+    {
+      "find": "\\bARTIC\\b",
+      "replace": "ARTICULATED",
+      "note": "ARTIC → ARTICULATED"
+    },
+    {
+      "find": "\\bDSL\\b",
+      "replace": "DIESEL",
+      "note": "DSL → DIESEL"
+    },
+    {
+      "find": "\\bFORWARD AND REVERSE PLATE\\b(.*)$",
+      "replace": "VIBRATING PLATE$1 FORWARD REVERSE",
+      "note": "FORWARD AND REVERSE PLATE → VIBRATING PLATE … FORWARD REVERSE"
+    },
+    {
+      "find": "\\b(?:PLATE COMPACTOR|WACKER PLATE|COMPACTION PLATE)\\b",
+      "replace": "VIBRATING PLATE",
+      "note": "→ VIBRATING PLATE (our standard name)"
+    },
+    {
+      "find": "\\b(?:FWD/RVS|FORWARD AND REVERSE|F&R)(?![A-Z])",
+      "replace": "FORWARD REVERSE",
+      "note": "→ FORWARD REVERSE"
+    },
+    {
+      "find": "\\b(?:POKER VIBRATOR|NEEDLE VIBRATOR)\\b",
+      "replace": "VIBRATING POKER",
+      "note": "→ VIBRATING POKER (our standard name)"
+    },
+    {
+      "find": "\\b(?:POWER FLOAT DISC|FLOAT DISC)\\b",
+      "replace": "POWER FLOAT PAN",
+      "note": "→ POWER FLOAT PAN (our standard name)"
+    },
+    {
+      "find": "\\bPOWER TROWEL\\b",
+      "replace": "POWER FLOAT",
+      "note": "POWER TROWEL → POWER FLOAT"
+    },
+    {
+      "find": "\\b(?:CONCRETE SCARIFIER|FLOOR SCARIFIER)\\b",
+      "replace": "FLOOR PLANER",
+      "note": "→ FLOOR PLANER (our standard name)"
+    },
+    {
+      "find": "\\b(?:REBAR TIER|REBAR TYING MACHINE)\\b",
+      "replace": "REBAR TYING TOOL",
+      "note": "→ REBAR TYING TOOL (our standard name)"
+    },
+    {
+      "find": "\\bJUMPING JACK\\b",
+      "replace": "TRENCH RAMMER",
+      "note": "JUMPING JACK → TRENCH RAMMER"
+    },
+    {
+      "find": "\\bTAMPING BEAM\\b",
+      "replace": "BEAM SCREED",
+      "note": "TAMPING BEAM → BEAM SCREED"
+    },
+    {
+      "find": "\\b(?:WET TILE CUTTER|PORCELAIN SAW)\\b",
+      "replace": "TILE SAW",
+      "note": "→ TILE SAW (our standard name)"
+    },
+    {
+      "find": "\\bBRIDGE TILE SAW\\b",
+      "replace": "TILE SAW BRIDGE",
+      "note": "BRIDGE TILE SAW → TILE SAW BRIDGE"
+    },
+    {
+      "find": "\\bTILE SAW TABLE\\b",
+      "replace": "TILE SAW BENCH",
+      "note": "TILE SAW TABLE → TILE SAW BENCH"
+    },
+    {
+      "find": "\\bSNAP CUTTER TILE\\b",
+      "replace": "TILE CUTTER MANUAL",
+      "note": "SNAP CUTTER TILE → TILE CUTTER MANUAL"
+    },
+    {
+      "find": "\\bDROP SAW\\b",
+      "replace": "MITRE SAW",
+      "note": "DROP SAW → MITRE SAW"
+    },
+    {
+      "find": "\\b(?:METAL|ABRASIVE) CHOP SAW\\b",
+      "replace": "CHOP SAW",
+      "note": "→ CHOP SAW (our standard name)"
+    },
+    {
+      "find": "\\bCOMBI LADDER\\b",
+      "replace": "COMBINATION LADDER",
+      "note": "COMBI LADDER → COMBINATION LADDER"
+    },
+    {
+      "find": "\\bAGR\\b",
+      "replace": "ADVANCE GUARDRAIL",
+      "note": "AGR → ADVANCE GUARDRAIL"
+    },
+    {
+      "find": "\\bAIR HANDLING UNIT\\b",
+      "replace": "AIR HANDLER",
+      "note": "AIR HANDLING UNIT → AIR HANDLER (one term)"
+    },
+    {
+      "find": "\\bDUCT\\b(?= \\d)",
+      "replace": "DUCTING",
+      "note": "DUCT → DUCTING"
+    },
+    {
+      "find": "\\bANTI-VANDAL\\b",
+      "replace": "ANTI VANDAL",
+      "note": "ANTI-VANDAL → ANTI VANDAL"
+    },
+    {
+      "find": "\\bAV\\b(?= \\d|$)",
+      "replace": "ANTI VANDAL",
+      "note": "AV → ANTI VANDAL"
+    },
+    {
+      "find": "\\bWC\\b",
+      "replace": "TOILET",
+      "note": "WC → TOILET"
+    },
+    {
+      "find": "\\bINC\\b",
+      "replace": "INCLUDING",
+      "note": "INC → INCLUDING"
+    },
+    {
+      "find": "(\\d) ?\\+ ?(\\d)",
+      "replace": "$1+$2",
+      "note": "toilet ratio tightened (2+1)"
+    },
+    {
+      "find": "(\\d+)'(?![A-Z0-9])",
+      "replace": "$1FT",
+      "note": "' → FT"
+    },
+    {
+      "find": "(\\d) ?(?:LITRES?|LTRS?|LT)\\b",
+      "replace": "$1L",
+      "note": "litres → L"
+    },
+    {
+      "find": "\\bDEMOLITION HAMMER\\b",
+      "replace": "BREAKER",
+      "note": "DEMOLITION HAMMER → BREAKER (our standard name)"
+    },
+    {
+      "find": "\\bBRKR\\b",
+      "replace": "BREAKER",
+      "note": "BRKR → BREAKER"
+    },
+    {
+      "find": "\\bHVY\\b",
+      "replace": "HEAVY",
+      "note": "HVY → HEAVY"
+    },
+    {
+      "find": "\\b(?:HDUTY|H/DUTY|HEAVY/DUTY)\\b",
+      "replace": "HEAVY DUTY",
+      "note": "→ HEAVY DUTY"
+    },
+    {
+      "find": "\\b(?:L/DUTY|L/D|LDUTY)\\b",
+      "replace": "LIGHT DUTY",
+      "note": "→ LIGHT DUTY"
+    },
+    {
+      "find": "\\bHYD\\b",
+      "replace": "HYDRAULIC",
+      "note": "HYD → HYDRAULIC"
+    },
+    {
+      "find": "\\bDRILLBIT\\b",
+      "replace": "DRILL BIT",
+      "note": "DRILLBIT → DRILL BIT"
+    },
+    {
+      "find": "\\bDIAMOND COR BIT\\b",
+      "replace": "DIAMOND CORE BIT",
+      "note": "typo fixed: COR → CORE"
+    },
+    {
+      "find": "\\bUNLIMITED (?:HRS|HOURS)\\b",
+      "replace": "UNLIMITED",
+      "note": "UNLIMITED HRS → UNLIMITED"
+    },
+    {
+      "find": "\\b(\\d+) ?(?:HRS|HOURS)\\b",
+      "replace": "$1HRS",
+      "note": "hours band written 50HRS"
+    }
   ]
 }
