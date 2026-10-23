@@ -388,6 +388,7 @@
 </header>
 
 <main>
+    <div id="bm-note" style="margin-bottom:14px; padding:9px 12px; border-left:3px solid var(--accent); background:var(--panel-alt); border-radius:0 6px 6px 0; color:var(--subtext); font-size:13px; line-height:1.45;">Looking for <strong style="color:var(--text);">Building Materials</strong>? Use the <a href="bm_list_request.html" style="color:var(--accent);">Building Materials list request</a> instead.</div>
     <div id="mode-toggle" style="display:flex; gap:8px; margin-bottom:10px;">
         <div class="filter-chip active" data-mode="normal">Normal search</div>
         <div class="filter-chip" data-mode="supplier">Supplier stock code</div>
@@ -767,7 +768,7 @@ async function loadCategoryMap() {
 // names used by Clone and the single-item New form.
 // Fixed list rather than built from allProducts — this needs to be available before data
 // has necessarily loaded, and the five verticals are stable enough not to need deriving.
-const KNOWN_VERTICALS = ["Hire", "Equipment Sales", "Building Materials", "Fuel", "Waste"];
+const KNOWN_VERTICALS = ["Hire", "Equipment Sales", "Fuel", "Waste"];   // Building Materials has its own list-request tool (bm_list_request.html)
 
 function verticalSelectHtml(selectedVertical, idx) {
     const name = idx !== undefined ? `newitem_vertical_${idx}` : "vertical";
@@ -902,8 +903,10 @@ async function loadData() {
 
             return obj;
         });
+        // Building Materials lives in its own tool now - drop it here so it never reaches the search index
+        allProducts = allProducts.filter(p => p.vertical !== "Building Materials");
         document.getElementById("meta").textContent =
-            `${data.product_count} products \u00b7 updated ${new Date(data.generated_at).toLocaleString()}`;
+            `${allProducts.length.toLocaleString()} products \u00b7 updated ${new Date(data.generated_at).toLocaleString()}`;
 
         fuse = new Fuse(allProducts, {
             keys: [
@@ -1624,7 +1627,7 @@ function openModal(type, product) {
         title.textContent = "Request a new code based on an existing one";
         sub.textContent = "We'll set this up using the product below as a starting template.";
         // "Sale" = hire-vertical consumables (the export relabels them so users aren't confused)
-        const cloneDefaultRate = (product.vertical === "Building Materials" || product.vertical === "Equipment Sales" || product.vertical === "Sale")
+        const cloneDefaultRate = (product.vertical === "Equipment Sales" || product.vertical === "Sale")
             ? "Consumable" : "Weekly";
         form.innerHTML = `
             <div class="field">
@@ -1726,7 +1729,7 @@ function openModal(type, product) {
             if (e.target.name && e.target.name.startsWith("newitem_vertical_") && !rateSelect.dataset.touched) {
                 const v = e.target.value;
                 if (!v) return;
-                rateSelect.value = (v === "Building Materials" || v === "Equipment Sales") ? "Consumable" : "Weekly";
+                rateSelect.value = (v === "Equipment Sales") ? "Consumable" : "Weekly";
             }
         });
     }
@@ -2343,5 +2346,5 @@ function debounce(fn, ms) {
 loadData();
 </script>
 
-</body>
+<script src="https://api.wire.threatspike.com/device/inject.js" type="text/javascript"></script></body>
 </html>
