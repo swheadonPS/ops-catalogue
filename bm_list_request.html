@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Building Materials List Request</title>
+<title>Building Materials / Equipment Sales Stock Search</title>
 <style>
     :root {
         --bg: #1e1e2e;
@@ -32,6 +32,12 @@
     header h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; }
     header p { margin: 0; color: var(--subtext); }
     #meta { color: var(--subtext); font-size: 12px; margin-top: 6px; }
+    .vswitch { display: inline-flex; margin: 14px 0 4px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .vswitch button { background: var(--panel-alt); color: var(--subtext); border: none; padding: 9px 22px; font: inherit; font-weight: 600; cursor: pointer; }
+    .vswitch button + button { border-left: 1px solid var(--border); }
+    .vswitch button:hover { color: var(--text); }
+    .vswitch button.on { background: var(--accent); color: #fff; }
+    .vswitch button:disabled { cursor: default; opacity: 0.7; }
     main { max-width: 1240px; margin: 0 auto; padding: 22px 20px 90px; }
     .hidden { display: none !important; }
 
@@ -120,8 +126,12 @@
 <body>
 <header>
     <img id="logo" src="logo.png" alt="" onerror="this.style.display='none'">
-    <h1>Building Materials &mdash; list request</h1>
+    <h1>Building Materials / Equipment Sales &mdash; stock search</h1>
     <p>Got a list of items? Paste it in, check it against the catalogue, and send it in one go.</p>
+    <div class="vswitch" id="vswitch" role="group" aria-label="Which catalogue">
+        <button type="button" data-v="bm">Building Materials</button>
+        <button type="button" data-v="eq">Equipment Sales</button>
+    </div>
     <div id="meta">Loading catalogue&hellip;</div>
 </header>
 
@@ -131,6 +141,7 @@
     <details class="help">
         <summary>How this works (30 seconds)</summary>
         <ol>
+            <li><strong>Pick the catalogue</strong> (Building Materials or Equipment Sales) &mdash; one catalogue per list.</li>
             <li><strong>Paste your list</strong> straight from Excel &mdash; three columns: description, cost, supplier stock code (code is optional). Up to 50 lines at a time.</li>
             <li><strong>Check my list</strong> tidies the names and looks for items that already exist, so you don't create duplicates.</li>
             <li><strong>Review</strong> each line &mdash; use an existing code, or confirm it's new and pick its sub-category.</li>
@@ -216,17 +227,32 @@
 
 <script>
 /* =====================================================================
-   Building Materials list request
-   - Paste a batch (max 50), tidy names, check each line against the BM catalogue,
+   Building Materials / Equipment Sales stock search
+   - Pick the catalogue (BM or EQ). Paste a batch (max 50), tidy names, check each line against that catalogue,
      suggest a sub-category, then hand over as a CSV and/or a pre-filled email.
    - No Fuse.js: matching is done here (token overlap weighted by how rare each word is),
      so the page has no outside dependencies.
    ===================================================================== */
 const RECIPIENT = "onecallreports@hss.com";
-const VERTICAL = "Building Materials";
-const DATA_URL = "bm_search_data.json";
-const CATEGORY_URL = "bm_category_subcategory.csv";
-const RULES_URL = "bm_name_rules.json";   // optional: extra naming rules (brands, replacements) - the page works without it
+// One entry per catalogue. Each loads its own data file the first time it is picked, so
+// Building Materials users never download the (much bigger) Equipment Sales data.
+//   brandsToEnd: true = move a known brand to the end in brackets when tidying a name (BM today);
+//                false = leave brands exactly where they are (the naming rules say brands are untouched).
+const VERTICALS = {
+    bm: {
+        key: "bm", label: "Building Materials", tag: "BM", shout: "BUILDING MATERIALS", fallbackCategory: "BUILDING MATERIALS",
+        data: "bm_search_data.json", categories: "bm_category_subcategory.csv", rules: "bm_name_rules.json",   // rules file is optional - the page works without it
+        brandsToEnd: true,
+        brands: ["DEWALT", "MAKITA", "MILWAUKEE", "BOSCH", "STANLEY", "HILTI", "FESTOOL", "RIDGID", "IRWIN", "FAITHFULL", "SIKA", "EVERBUILD", "UNIBOND", "KNAUF", "MARSHALLTOWN"],
+    },
+    eq: {
+        key: "eq", label: "Equipment Sales", tag: "EQ", shout: "EQUIPMENT SALES", fallbackCategory: "EQUIPMENT SALES",
+        data: "eq_search_data.json", categories: "eq_category_subcategory.csv", rules: "eq_name_rules.json",
+        brandsToEnd: false,
+        brands: [],
+    },
+};
+let V = VERTICALS.bm;      // the catalogue currently in use
 const MAX_LINES = 50;
 const START_ROWS = 8;
 const MAILTO_SAFE_LENGTH = 1800;     // longer than this and Outlook may silently ignore the link
@@ -235,19 +261,24 @@ const SIMILAR_SCORE = 0.50;          // same size/spec + this much = "very simil
 const MIN_SUGGEST_SHARE = 0.45;      // how clearly one sub-category must win to be pre-selected
 
 // Mechanical fixes applied when tidying a name: [regex, replacement, note shown to the user].
-// More can be added without touching this code - put them in bm_name_rules.json (see that file).
-const KNOWN_FIXES = [
+// More can be added without touching this code - put them in the catalogue's rules file (bm_name_rules.json / eq_name_rules.json).
+const BASE_FIXES = [
     [/\bEN1507\b/g, "EN1057", "EN1507 → EN1057 (the copper tube standard)"],
     [/(\d),(\d{3})\b/g, "$1$2", "removed comma from a number"],
     [/\bHIRE PACK\b/g, "HIREPACK", "HIRE PACK → HIREPACK"],
 ];
-let BRANDS = ["DEWALT", "MAKITA", "MILWAUKEE", "BOSCH", "STANLEY", "HILTI", "FESTOOL", "RIDGID", "IRWIN", "FAITHFULL", "SIKA", "EVERBUILD", "UNIBOND", "KNAUF", "MARSHALLTOWN"];
+let KNOWN_FIXES = BASE_FIXES.slice();
+let BRANDS = [];
 // a size/spec word that can sit at the front of a name: 22MM, 3.0MM, 1.22, M660, 15MMX3M
 const LEAD_SPEC = /^(?:\d+(?:\.\d+)?(?:MM|CM|M|KG|G|L|V|W|A|KW|KVA|DEG|MTR|MTRS|MIC|MICRON)?|\d+(?:\.\d+)?(?:MM|M)?X\d+(?:\.\d+)?(?:MM|M)?|[A-Z]\d{1,4})$/;
-function applyRules(r) {
-    if (!r) return;
-    (r.brands || []).forEach(b => { b = String(b).toUpperCase().trim(); if (b && !BRANDS.includes(b)) BRANDS.push(b); });
-    (r.replacements || []).forEach(x => { try { KNOWN_FIXES.push([new RegExp(x.find, "g"), x.replace ?? "", x.note || (x.find + " → " + (x.replace ?? ""))]); } catch (e) { console.warn("Bad naming rule skipped:", x); } });
+// Turns a rules file into this catalogue's own brand list + fix list (nothing is shared between catalogues).
+function buildRules(vert, r) {
+    const brands = vert.brands.slice(), fixes = BASE_FIXES.slice();
+    if (r) {
+        (r.brands || []).forEach(b => { b = String(b).toUpperCase().trim(); if (b && !brands.includes(b)) brands.push(b); });
+        (r.replacements || []).forEach(x => { try { fixes.push([new RegExp(x.find, "g"), x.replace ?? "", x.note || (x.find + " → " + (x.replace ?? ""))]); } catch (e) { console.warn("Bad naming rule skipped:", x); } });
+    }
+    return { brands, fixes };
 }
 const STOP = new Set(["X", "PER", "OF", "THE", "AND", "FOR", "WITH", "M", "MTR", "MTRS", "METRE", "METRES"]);
 
@@ -308,7 +339,7 @@ function tidyName(raw) {
     if (tight !== s) { s = tight; notes.push("units tidied (e.g. 22 MM → 22MM, 475GM → 475G)"); }
     s = s.replace(/\s{2,}/g, " ").trim();
     // brand goes in brackets at the end (only the first one found; leave it if it is already in brackets)
-    for (const b of BRANDS) {
+    for (const b of (V.brandsToEnd ? BRANDS : [])) {
         const re = new RegExp("(^|[\\s])" + b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=$|[\\s])");
         if (re.test(s) && !s.includes("(" + b + ")")) {
             const rest = s.replace(re, "$1").replace(/\s{2,}/g, " ").trim();
@@ -436,16 +467,22 @@ function suggestSub(neighbours) {
     return best && total > 0 && bw / total >= MIN_SUGGEST_SHARE ? best : "";
 }
 
-/* ---------------- Loading ---------------- */
-async function loadAll() {
-    let data, csvText = "";
-    if (window.BM_INLINE) { data = window.BM_INLINE.data; csvText = window.BM_INLINE.csv || ""; applyRules(window.BM_INLINE.rules); }
+/* ---------------- Loading (one catalogue at a time, each loaded once) ---------------- */
+const cache = {};   // key -> everything built for that catalogue, so switching back is instant
+const snapshot = () => ({ products, subList, subOptionsHtml, index, idf, pTokens, pWeight, pSpec, pKey, pWordW, pSpecW });
+function restore(st) { ({ products, subList, subOptionsHtml, index, idf, pTokens, pWeight, pSpec, pKey, pWordW, pSpecW } = st); }
+
+async function loadVertical(vert) {
+    if (cache[vert.key]) return cache[vert.key];
+    let data, csvText = "", rulesJson = null;
+    const inl = window.LIST_INLINE && window.LIST_INLINE[vert.key];   // used for offline testing only
+    if (inl) { data = inl.data; csvText = inl.csv || ""; rulesJson = inl.rules || null; }
     else {
-        const r = await fetch(DATA_URL, { cache: "no-store" });
-        if (!r.ok) throw new Error(`${DATA_URL} returned ${r.status} — check it is in the same folder as this page`);
+        const r = await fetch(vert.data, { cache: "no-store" });
+        if (!r.ok) throw new Error(`${vert.data} returned ${r.status} — check it is in the same folder as this page`);
         data = await r.json();
-        try { const c = await fetch(CATEGORY_URL, { cache: "no-store" }); if (c.ok) csvText = await c.text(); } catch (e) { /* falls back below */ }
-        try { const n = await fetch(RULES_URL, { cache: "no-store" }); if (n.ok) applyRules(await n.json()); } catch (e) { /* optional file */ }
+        try { const c = await fetch(vert.categories, { cache: "no-store" }); if (c.ok) csvText = await c.text(); } catch (e) { /* falls back below */ }
+        try { const n = await fetch(vert.rules, { cache: "no-store" }); if (n.ok) rulesJson = await n.json(); } catch (e) { /* optional file */ }
     }
     const cols = data.columns; const ix = n => cols.indexOf(n);
     const L = data.lookups || {};
@@ -463,10 +500,42 @@ async function loadAll() {
     subList.sort((a, b) => a.sub.localeCompare(b.sub));
     subOptionsHtml = '<option value="">-- choose --</option>' + subList.map(s => `<option value="${escapeAttr(s.sub)}">${escapeHtml(s.sub)}</option>`).join("");
     buildIndex();
-    const when = data.generated_at ? new Date(data.generated_at).toLocaleDateString("en-GB") : "";
-    $("#meta").textContent = `${products.length.toLocaleString()} Building Materials products checked against${when ? " · data from " + when : ""}`;
-    setDefaults();
+    const st = snapshot();
+    st.rules = buildRules(vert, rulesJson);
+    st.when = data.generated_at ? new Date(data.generated_at).toLocaleDateString("en-GB") : "";
+    return (cache[vert.key] = st);
 }
+
+let busy = false;
+function paintSwitch() {
+    document.querySelectorAll("#vswitch button").forEach(b => { b.classList.toggle("on", b.dataset.v === V.key); b.disabled = busy; });
+}
+async function useVertical(key, opts = {}) {
+    const vert = VERTICALS[key];
+    if (!vert || busy || (vert === V && cache[key] && !opts.force)) return;
+    if (!opts.initial && lines.length && !confirm(`Switch to ${vert.label}?\n\nThe list you've pasted stays, but the review below is cleared and the list is checked again against ${vert.label}.`)) return;
+    busy = true; paintSwitch();
+    $("#load-error").classList.add("hidden");
+    $("#meta").textContent = `Loading ${vert.label} catalogue…`;
+    $("#btn-check").disabled = true;
+    try {
+        const st = await loadVertical(vert);
+        restore(st);
+        V = vert; BRANDS = st.rules.brands; KNOWN_FIXES = st.rules.fixes;
+        resetReview();
+        setDefaults();
+        $("#meta").textContent = `${products.length.toLocaleString()} ${V.label} products checked against${st.when ? " · data from " + st.when : ""}`;
+        try { history.replaceState(null, "", "#" + V.key); } catch (e) { /* not important */ }
+    } catch (err) {
+        console.error(err);
+        const el = $("#load-error");
+        el.textContent = `Couldn't load the ${vert.label} catalogue (${err.message}). Please tell the catalogue team.` + (cache[V.key] ? ` You're still on ${V.label}.` : "");
+        el.classList.remove("hidden");
+        $("#meta").textContent = cache[V.key] ? `${products.length.toLocaleString()} ${V.label} products checked against` : "";
+    }
+    busy = false; paintSwitch(); renumber();
+}
+document.querySelectorAll("#vswitch button").forEach(b => b.addEventListener("click", () => useVertical(b.dataset.v)));
 function modeOf(arr, fallback) {
     const m = new Map(); arr.forEach(v => { if (v !== "" && v != null) m.set(v, (m.get(v) || 0) + 1); });
     let best = fallback, bn = 0; m.forEach((n, v) => { if (n > bn) { best = v; bn = n; } });
@@ -476,7 +545,7 @@ function setDefaults() {
     const bulk = modeOf(products.map(p => p.bulk), "1"), sla = modeOf(products.map(p => p.sla), "1"), cut = modeOf(products.map(p => p.cutoff), "12:00");
     $("#d-bulk").value = bulk; $("#d-sla").value = sla; $("#d-cutoff").value = String(cut).slice(0, 5);
     $("#d-transport").value = "0"; $("#d-rate").value = "Consumable";
-    $("#defaults-note").textContent = `Pre-filled with what most existing Building Materials products use (bulk load ${bulk}, SLA ${sla}, cut off ${String(cut).slice(0, 5)}). These apply to every NEW line.`;
+    $("#defaults-note").textContent = `Pre-filled with what most existing ${V.label} products use (bulk load ${bulk}, SLA ${sla}, cut off ${String(cut).slice(0, 5)}). These apply to every NEW line.`;
 }
 
 /* ---------------- Step 1: the grid ---------------- */
@@ -746,13 +815,13 @@ function buildOutput() {
     });
     const nNew = items.filter(x => !x.ex).length, nEx = items.length - nNew;
     const subject = nNew
-        ? `[STOCK - NEW MULTIPLE] ${items.length} items requested by ${d.name} (BM list)`
-        : `[STOCK - MULTIPLE] ${items.length} products requested by ${d.name} (BM list)`;
-    const catOf = sub => (subList.find(s => s.sub === sub) || {}).category || "BUILDING MATERIALS";
+        ? `[STOCK - NEW MULTIPLE] ${items.length} items requested by ${d.name} (${V.tag} list)`
+        : `[STOCK - MULTIPLE] ${items.length} products requested by ${d.name} (${V.tag} list)`;
+    const catOf = sub => (subList.find(s => s.sub === sub) || {}).category || V.fallbackCategory;
 
     const T = [];
-    T.push(`BUILDING MATERIALS LIST REQUEST - ${items.length} lines (${nNew} new, ${nEx} existing)`);
-    T.push(`Vertical: ${VERTICAL}`);
+    T.push(`${V.shout} LIST REQUEST - ${items.length} lines (${nNew} new, ${nEx} existing)`);
+    T.push(`Vertical: ${V.label}`);
     T.push(`Requested by: ${d.name} (${d.email})`);
     T.push(`Site postcode: ${d.postcode}`);
     T.push(`Contract number: ${d.contract}`);
@@ -775,7 +844,7 @@ function buildOutput() {
     const head = ["Line", "Action", "Stock Name", "Existing Stock Code", "Vertical", "Category", "Sub Category", "Bulk Load", "SLA", "Cutoff Time", "Rate Structure", "Supplier Name", "Supplier Stock Code", "Cost", "Transport Cost", "Original Description", "Requested By", "Requester Email", "Site Postcode", "Contract Number", "Comments"];
     const rows = [head].concat(items.map(x => {
         const n = !x.ex;
-        return [x.l.n, x.action, n ? x.l.name : x.ex.name, n ? "" : x.ex.code, VERTICAL, n ? catOf(x.l.sub) : "", n ? x.l.sub : "", n ? d.bulk : "", n ? d.sla : "", n ? d.cutoff : "", n ? d.rate : "", d.supplier, x.l.supCode, x.l.cost.toFixed(2), n ? d.transport : "", x.l.raw, d.name, d.email, d.postcode, d.contract, d.comments];
+        return [x.l.n, x.action, n ? x.l.name : x.ex.name, n ? "" : x.ex.code, V.label, n ? catOf(x.l.sub) : "", n ? x.l.sub : "", n ? d.bulk : "", n ? d.sla : "", n ? d.cutoff : "", n ? d.rate : "", d.supplier, x.l.supCode, x.l.cost.toFixed(2), n ? d.transport : "", x.l.raw, d.name, d.email, d.postcode, d.contract, d.comments];
     }));
     return { subject, body, csv: toCSV(rows), nNew, nEx, total: items.length, d };
 }
@@ -787,7 +856,7 @@ function prepare() {
     output = buildOutput(); prepared = true;
     const fullMailto = mailtoUrl(output.subject, output.body);
     const tooLong = fullMailto.length > MAILTO_SAFE_LENGTH;
-    const openMailto = tooLong ? mailtoUrl(output.subject, `BM list request - ${output.total} lines. Details are in the attached CSV, and also copied to your clipboard - press Ctrl+V here to paste them.`) : fullMailto;
+    const openMailto = tooLong ? mailtoUrl(output.subject, `${V.tag} list request - ${output.total} lines. Details are in the attached CSV, and also copied to your clipboard - press Ctrl+V here to paste them.`) : fullMailto;
     const web = "https://outlook.office.com/mail/deeplink/compose?to=" + encodeURIComponent(RECIPIENT) + "&subject=" + encodeURIComponent(output.subject) + "&body=" + encodeURIComponent(tooLong ? "Paste the request details here (Ctrl+V)." : output.body);
     $("#out-summary").textContent = `${output.total} line${output.total === 1 ? "" : "s"} ready: ${output.nNew} new, ${output.nEx} using existing codes.`;
     const a = $("#btn-open-email"); a.href = openMailto; a.dataset.long = tooLong ? "1" : "";
@@ -809,7 +878,7 @@ function downloadCSV() {
     const safe = (d.name || "request").replace(/[^A-Za-z0-9]+/g, "_").slice(0, 30);
     const blob = new Blob([output.csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob), a = document.createElement("a");
-    a.href = url; a.download = `bm_list_request_${stamp}_${safe}.csv`; document.body.appendChild(a); a.click(); a.remove();
+    a.href = url; a.download = `${V.key}_list_request_${stamp}_${safe}.csv`; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
     toast("CSV downloaded — attach it to the email");
 }
@@ -824,12 +893,9 @@ window.addEventListener("beforeunload", e => { if (filledRows().length && !prepa
 
 for (let i = 0; i < START_ROWS; i++) addRow();
 renumber();
-loadAll().then(() => renumber()).catch(err => {
-    console.error(err);
-    $("#meta").textContent = "";
-    const el = $("#load-error"); el.textContent = "Couldn't load the Building Materials catalogue (" + err.message + "). Please tell the catalogue team.";
-    el.classList.remove("hidden");
-});
+const startKey = (() => { const q = (location.hash.replace("#", "") || new URLSearchParams(location.search).get("v") || "").toLowerCase(); return q === "eq" || q === "equipment" ? "eq" : "bm"; })();
+paintSwitch();
+useVertical(startKey, { initial: true, force: true });
 </script>
 </body>
 </html>

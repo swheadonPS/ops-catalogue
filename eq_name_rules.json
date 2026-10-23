@@ -1,0 +1,126 @@
+{
+ "_help": "Naming rules for the Equipment Sales (EQ) consumables list tool and EQ correction jobs. Same format as name_rules.json / bm_name_rules.json: UPPERCASE names, regex in find, $1 in replace, applied in order. Only mechanical tidy-ups; brands, model codes and descriptions are NOT touched. See claude/00-master-name-rules.md section 6.",
+ "brands": [],
+ "replacements": [
+  {
+   "find": " ",
+   "replace": " ",
+   "note": "Non-breaking space to space"
+  },
+  {
+   "find": "(\\d)¼",
+   "replace": "$1 1/4",
+   "note": "1¼ to 1 1/4"
+  },
+  {
+   "find": "(\\d)½",
+   "replace": "$1 1/2",
+   "note": "1½ to 1 1/2"
+  },
+  {
+   "find": "(\\d)¾",
+   "replace": "$1 3/4",
+   "note": "1¾ to 1 3/4"
+  },
+  {
+   "find": "¼",
+   "replace": "1/4",
+   "note": "¼ to 1/4"
+  },
+  {
+   "find": "½",
+   "replace": "1/2",
+   "note": "½ to 1/2"
+  },
+  {
+   "find": "¾",
+   "replace": "3/4",
+   "note": "¾ to 3/4"
+  },
+  {
+   "find": "²",
+   "replace": "2",
+   "note": "M² to M2"
+  },
+  {
+   "find": "³",
+   "replace": "3",
+   "note": "M³ to M3"
+  },
+  {
+   "find": "\\s[–—]\\s",
+   "replace": " - ",
+   "note": "Spaced en/em dash to hyphen"
+  },
+  {
+   "find": "[^\\x00-\\x7F]",
+   "replace": "",
+   "note": "Strip stray non-ASCII bytes (e.g. GRIPPS + replacement char)"
+  },
+  {
+   "find": "\\s*,\\s*",
+   "replace": " ",
+   "note": "No commas"
+  },
+  {
+   "find": "\\bC/W\\b",
+   "replace": "WITH",
+   "note": "C/W to WITH"
+  },
+  {
+   "find": "(\\d)\\s*(?:LTR|LITRES?|LT)S?\\b",
+   "replace": "$1L",
+   "note": "LTR / LITRE to L"
+  },
+  {
+   "find": "(\\d)\\s+(MM|KG|ML|M|L|CM|KW|W)\\b",
+   "replace": "$1$2",
+   "note": "Units tight: 25 KG to 25KG, 700 W to 700W"
+  },
+  {
+   "find": "\\b(\\d{2,3}) ?(VOLTS?|VAC|VOLT AC)\\b",
+   "replace": "$1V",
+   "note": "110 VOLT / 110VAC to 110V"
+  },
+  {
+   "find": "\\b(\\d{2,3}) V\\b",
+   "replace": "$1V",
+   "note": "110 V to 110V"
+  },
+  {
+   "find": "\\b([MHL])-CLASS\\b",
+   "replace": "$1 CLASS",
+   "note": "Dust class: M-CLASS to M CLASS"
+  },
+  {
+   "find": "\\bPACK OF (\\d+)\\b",
+   "replace": "PK$1",
+   "note": "PACK OF 10 to PK10 (our dominant pack style)"
+  },
+  {
+   "find": "\\bPK (\\d+)\\b",
+   "replace": "PK$1",
+   "note": "PK 10 to PK10"
+  },
+  {
+   "find": "\\b(\\d+) ?PK\\b",
+   "replace": "PK$1",
+   "note": "10PK / 10 PK to PK10"
+  },
+  {
+   "find": "\\b(\\d+) PACK\\b",
+   "replace": "PK$1",
+   "note": "10 PACK to PK10"
+  },
+  {
+   "find": "(\\d)\\s*X\\s*(?=\\d)",
+   "replace": "$1 X ",
+   "note": "Dimensions: 100X47 to 100 X 47"
+  },
+  {
+   "find": "\\s{2,}",
+   "replace": " ",
+   "note": "Collapse double spaces"
+  }
+ ]
+}
