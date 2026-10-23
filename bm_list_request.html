@@ -815,13 +815,14 @@ function buildOutput() {
     });
     const nNew = items.filter(x => !x.ex).length, nEx = items.length - nNew;
     const subject = nNew
-        ? `[STOCK - NEW MULTIPLE] ${items.length} items requested by ${d.name} (${V.tag} list)`
-        : `[STOCK - MULTIPLE] ${items.length} products requested by ${d.name} (${V.tag} list)`;
+        ? `[STOCK - NEW MULTIPLE] ${V.shout} ${items.length} items requested by ${d.name} (${V.tag} list)`
+        : `[STOCK - MULTIPLE] ${V.shout} ${items.length} products requested by ${d.name} (${V.tag} list)`;
     const catOf = sub => (subList.find(s => s.sub === sub) || {}).category || V.fallbackCategory;
 
     const T = [];
-    T.push(`${V.shout} LIST REQUEST - ${items.length} lines (${nNew} new, ${nEx} existing)`);
-    T.push(`Vertical: ${V.label}`);
+    // Vertical first and on its own, with a blank line either side (email is plain text, so no real bold - capitals and *** stand out instead)
+    T.push("", `*** VERTICAL: ${V.shout} ***`, "");
+    T.push(`List request - ${items.length} lines (${nNew} new, ${nEx} existing)`);
     T.push(`Requested by: ${d.name} (${d.email})`);
     T.push(`Site postcode: ${d.postcode}`);
     T.push(`Contract number: ${d.contract}`);
