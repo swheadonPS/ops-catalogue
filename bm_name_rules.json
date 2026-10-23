@@ -1,0 +1,7 @@
+{
+  "_help": "Optional extra naming rules for the BM list page. 'brands' are moved to the end of a name in brackets. 'replacements' are find/replace rules (find is a regular expression, matched on UPPERCASE names). Add as many as you like - no code change needed.",
+  "brands": [],
+  "replacements": [
+    { "find": "\\bC/W\\b", "replace": "WITH", "note": "C/W → WITH" }
+  ]
+}
